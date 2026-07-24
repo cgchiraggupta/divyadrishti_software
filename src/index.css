@@ -1,0 +1,68 @@
+@import "tailwindcss";
+
+@theme {
+  /* Night-navigation palette */
+  --color-night-950: #080b14;
+  --color-night-900: #0d1220;
+  --color-night-800: #131a2e;
+  --color-night-700: #1c2540;
+  --color-night-600: #2a3558;
+
+  --color-mist-500: #6b7396;
+  --color-mist-400: #8a93b3;
+  --color-mist-300: #b3bad4;
+  --color-mist-200: #d8dcec;
+  --color-mist-100: #f0f2fa;
+
+  --color-signal-500: #e8a33d;
+  --color-signal-400: #f2b85c;
+  --color-signal-300: #f8d18f;
+
+  --color-safe-500: #4fbf88;
+  --color-safe-400: #6fd6a2;
+
+  --color-alert-500: #e2574c;
+  --color-alert-400: #ec7a70;
+
+  --font-display: "Space Grotesk", "Inter", sans-serif;
+  --font-body: "Inter", sans-serif;
+  --font-data: "JetBrains Mono", ui-monospace, monospace;
+}
+
+body {
+  background-color: var(--color-night-950);
+  color: var(--color-mist-100);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Signature element: sensing pulse ring, used around the live connection indicator */
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.6;
+  }
+  80% {
+    transform: scale(1.8);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.8);
+    opacity: 0;
+  }
+}
+
+.pulse-ring {
+  animation: pulse-ring 2.2s cubic-bezier(0.2, 0.6, 0.4, 1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse-ring {
+    animation: none;
+  }
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-signal-400);
+  outline-offset: 2px;
+}
