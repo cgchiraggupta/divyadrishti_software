@@ -107,7 +107,11 @@ export function DeviceProvider({ children }) {
   // Prefer a nearby Wi-Fi link for immediate connection feedback. Cloud
   // Realtime remains the history and away-from-home fallback.
   useEffect(() => {
-    if (isDemoMode || !device?.pairing_code) {
+    const nearbyPairingCode = isDemoMode
+      ? import.meta.env.VITE_LOCAL_PAIRING_CODE
+      : device?.pairing_code
+
+    if (!nearbyPairingCode) {
       setNearbyLink({ state: 'idle', status: null })
       return undefined
     }
@@ -115,7 +119,7 @@ export function DeviceProvider({ children }) {
     let active = true
     const checkNearby = async () => {
       try {
-        const localStatus = await getNearbyDeviceStatus(device.pairing_code)
+        const localStatus = await getNearbyDeviceStatus(nearbyPairingCode)
         if (active) setNearbyLink({ state: 'connected', status: localStatus })
       } catch {
         if (active) setNearbyLink({ state: 'away', status: null })
