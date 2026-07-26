@@ -6,6 +6,7 @@ import Dashboard from './pages/Dashboard'
 import History from './pages/History'
 import Settings from './pages/Settings'
 import Diagnostics from './pages/Diagnostics'
+import WifiSetup from './pages/WifiSetup'
 
 function RequireDevice({ children }) {
   const { device, loading } = useDevice()
@@ -26,6 +27,7 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/pairing" element={<Pairing />} />
+      <Route path="/wifi-setup" element={<WifiSetup />} />
       <Route
         path="/"
         element={

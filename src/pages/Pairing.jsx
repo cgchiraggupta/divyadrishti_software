@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Radio } from 'lucide-react'
 import Button from '../components/Button'
 import { useDevice } from '../context/DeviceContext'
@@ -63,6 +64,7 @@ export default function Pairing() {
             {submitting ? 'Pairing…' : 'Pair device'}
           </Button>
         </form>
+        <Link to="/wifi-setup" className="mt-5 block text-sm font-semibold text-signal-300">Using a new Wi-Fi? Set up your glasses</Link>
       </div>
     </div>
   )
