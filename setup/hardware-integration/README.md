@@ -34,6 +34,13 @@ The app will send settings and commands through an authenticated command channel
 `device_commands` schema and Pi polling/acknowledgement behavior will be added when the hardware
 team confirms its preferred transport.
 
+## Automatic sensing startup
+
+`divyadrishti-sensing.service` starts the device program automatically. It waits for a normal
+`wlan0` Wi-Fi route before launching `/home/pi/divya_drishti_final.py`, so it does not run during
+the temporary `DivyaDrishti-Setup` hotspot flow. It is supervised by systemd and restarts after
+an unexpected crash. SSH is only needed for diagnostics or software updates.
+
 ## Vision and voice behavior
 
 Current reported behavior is safety detection, not object recognition:
