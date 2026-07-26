@@ -3,9 +3,11 @@ import { Radio } from 'lucide-react'
 import Button from '../components/Button'
 import { useDevice } from '../context/DeviceContext'
 
+const prototypePairingCode = import.meta.env.VITE_PROTOTYPE_PAIRING_CODE ?? ''
+
 export default function Pairing() {
   const { pairDevice } = useDevice()
-  const [code, setCode] = useState('')
+  const [code, setCode] = useState(prototypePairingCode)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -31,7 +33,7 @@ export default function Pairing() {
 
         <h1 className="font-display text-xl font-semibold tracking-tight">Pair your glasses</h1>
         <p className="mt-2 text-sm text-mist-400">
-          Power on Divya Drishti. It will speak a 6-character pairing code — enter it below.
+          Power on Divya Drishti and enter the device pairing code below.
         </p>
 
         <form onSubmit={handleSubmit} className="mt-8 text-left">
@@ -50,6 +52,12 @@ export default function Pairing() {
                        focus:border-signal-400 focus:outline-none"
           />
           {error && <p className="mt-2 text-sm text-alert-400">{error}</p>}
+
+          {prototypePairingCode && (
+            <p className="mt-3 text-center text-xs leading-5 text-mist-500">
+              Prototype setup code is prefilled. You can replace it if needed.
+            </p>
+          )}
 
           <Button type="submit" disabled={submitting || code.length < 4} className="mt-6 w-full">
             {submitting ? 'Pairing…' : 'Pair device'}
