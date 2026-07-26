@@ -3,9 +3,10 @@ import { Volume2, Vibrate, Ruler, LogOut } from 'lucide-react'
 import Layout from '../components/Layout'
 import Card from '../components/Card'
 import Button from '../components/Button'
-import { supabase } from '../lib/supabaseClient'
+import { supabase, isDemoMode } from '../lib/supabaseClient'
 import { useDevice } from '../context/DeviceContext'
 import { useAuth } from '../context/AuthContext'
+import { signalGuidance, tapFeedback } from '../services/sensoryFeedback'
 
 const FEEDBACK_MODES = [
   { id: 'audio', label: 'Audio only' },
@@ -14,16 +15,28 @@ const FEEDBACK_MODES = [
 ]
 
 const DEFAULTS = { sensitivity_mm: 800, feedback_mode: 'both', volume: 70, vibration_intensity: 70 }
+const DEMO_SETTINGS_KEY = 'divya-drishti-demo-settings'
+
+function getInitialSettings() {
+  if (!isDemoMode) return DEFAULTS
+  try {
+    const saved = window.localStorage.getItem(DEMO_SETTINGS_KEY)
+    return saved ? { ...DEFAULTS, ...JSON.parse(saved) } : DEFAULTS
+  } catch {
+    return DEFAULTS
+  }
+}
 
 export default function Settings() {
   const { device } = useDevice()
   const { signOut } = useAuth()
-  const [settings, setSettings] = useState(DEFAULTS)
+  const [settings, setSettings] = useState(getInitialSettings)
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState(null)
 
   useEffect(() => {
     if (!device) return
+    if (isDemoMode) return
     supabase
       .from('device_settings')
       .select('*')
@@ -39,6 +52,12 @@ export default function Settings() {
   const save = async () => {
     if (!device) return
     setSaving(true)
+    if (isDemoMode) {
+      window.localStorage.setItem(DEMO_SETTINGS_KEY, JSON.stringify(settings))
+      setSaving(false)
+      setSavedAt(new Date())
+      return
+    }
     await supabase
       .from('device_settings')
       .upsert({ device_id: device.id, ...settings, updated_at: new Date().toISOString() })
@@ -61,6 +80,7 @@ export default function Settings() {
             step="50"
             value={settings.sensitivity_mm}
             onChange={(e) => update({ sensitivity_mm: Number(e.target.value) })}
+            onPointerUp={tapFeedback}
             className="w-full accent-signal-500"
           />
           <p className="mt-2 text-xs text-mist-500">Alerts trigger when an obstacle is closer than this distance.</p>
@@ -71,7 +91,10 @@ export default function Settings() {
             {FEEDBACK_MODES.map((mode) => (
               <button
                 key={mode.id}
-                onClick={() => update({ feedback_mode: mode.id })}
+                onClick={() => {
+                  update({ feedback_mode: mode.id })
+                  tapFeedback()
+                }}
                 className={`rounded-xl border py-2.5 text-xs font-medium transition-colors ${
                   settings.feedback_mode === mode.id
                     ? 'border-signal-500 bg-signal-500/15 text-signal-400'
@@ -83,6 +106,19 @@ export default function Settings() {
             ))}
           </div>
           <p className="mt-2 text-xs text-mist-500">Use vibration-only in noisy environments.</p>
+          <button
+            onClick={() => signalGuidance({
+              text: 'Obstacle ahead. This is your current alert setting.',
+              isHazard: true,
+              audio: settings.feedback_mode !== 'vibration',
+              vibration: settings.feedback_mode !== 'audio',
+              audioVolume: settings.volume / 100,
+              vibrationDuration: 120 + settings.vibration_intensity * 4,
+            })}
+            className="mt-4 text-sm font-semibold text-signal-300"
+          >
+            Test this alert
+          </button>
         </Card>
 
         <Card eyebrow="Audio" title="Volume">
@@ -94,6 +130,7 @@ export default function Settings() {
               max="100"
               value={settings.volume}
               onChange={(e) => update({ volume: Number(e.target.value) })}
+              onPointerUp={tapFeedback}
               className="flex-1 accent-signal-500"
             />
             <span className="font-data text-sm text-mist-200 w-10 text-right">{settings.volume}%</span>
@@ -109,6 +146,7 @@ export default function Settings() {
               max="100"
               value={settings.vibration_intensity}
               onChange={(e) => update({ vibration_intensity: Number(e.target.value) })}
+              onPointerUp={tapFeedback}
               className="flex-1 accent-signal-500"
             />
             <span className="font-data text-sm text-mist-200 w-10 text-right">{settings.vibration_intensity}%</span>

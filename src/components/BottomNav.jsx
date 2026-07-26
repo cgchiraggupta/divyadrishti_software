@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router-dom'
 import { LayoutDashboard, History, SlidersHorizontal, Stethoscope } from 'lucide-react'
+import { tapFeedback } from '../services/sensoryFeedback'
 
 const items = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
@@ -21,6 +22,7 @@ export default function BottomNav() {
             <NavLink
               to={to}
               end={end}
+              onClick={tapFeedback}
               className={({ isActive }) =>
                 `flex flex-col items-center gap-1 py-2.5 text-xs font-medium transition-colors ${
                   isActive ? 'text-signal-400' : 'text-mist-400 hover:text-mist-200'

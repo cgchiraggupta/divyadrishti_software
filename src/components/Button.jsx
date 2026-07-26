@@ -5,14 +5,21 @@ const VARIANTS = {
   danger: 'bg-alert-500/15 text-alert-400 border border-alert-500/30 hover:bg-alert-500/25',
 }
 
-export default function Button({ variant = 'primary', className = '', children, ...props }) {
+export default function Button({ variant = 'primary', className = '', children, onClick, ...props }) {
+  const handleClick = (event) => {
+    if (!props.disabled) tapFeedback()
+    onClick?.(event)
+  }
+
   return (
     <button
       className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold
                   transition-colors disabled:opacity-50 disabled:pointer-events-none ${VARIANTS[variant]} ${className}`}
       {...props}
+      onClick={handleClick}
     >
       {children}
     </button>
   )
 }
+import { tapFeedback } from '../services/sensoryFeedback'

@@ -1,94 +1,97 @@
-import { BatteryMedium, Camera, Ear, Radar } from 'lucide-react'
+import { BatteryMedium, Check, ChevronRight, Eye, Footprints, Radio, Sparkles, Volume2, Waves } from 'lucide-react'
 import Layout from '../components/Layout'
 import Card from '../components/Card'
 import StatusPulse from '../components/StatusPulse'
 import { useDevice } from '../context/DeviceContext'
+import { previewScenes } from '../lib/demoData'
 import { alertLabel, isHazardEvent, timeAgo } from '../lib/format'
+import { isDemoMode } from '../lib/supabaseClient'
+import { signalGuidance, speakGuidance } from '../services/sensoryFeedback'
 
 function connectionState(device, status) {
   if (!device?.last_seen_at) return 'offline'
-  const staleMs = Date.now() - new Date(device.last_seen_at).getTime()
-  if (staleMs > 60_000) return 'offline'
+  if (Date.now() - new Date(device.last_seen_at).getTime() > 60_000) return 'offline'
   if (status?.current_alert && isHazardEvent(status.current_alert)) return 'alert'
   return 'online'
 }
 
-function SensorPill({ ok, label, Icon }) {
-  return (
-    <div
-      className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 ${
-        ok ? 'border-safe-500/30 bg-safe-500/10' : 'border-alert-500/30 bg-alert-500/10'
-      }`}
-    >
-      <Icon size={16} className={ok ? 'text-safe-400' : 'text-alert-400'} />
-      <div className="text-xs">
-        <p className="font-medium text-mist-100">{label}</p>
-        <p className={ok ? 'text-safe-400' : 'text-alert-400'}>{ok ? 'OK' : 'Unavailable'}</p>
-      </div>
-    </div>
-  )
+function statusCopy(status) {
+  const type = status?.current_alert ?? 'path_clear'
+  if (type === 'path_clear') return { title: 'Path ahead is clear', body: 'Your glasses are watching for obstacles.', icon: Check }
+  if (type === 'uneven_ground') return { title: 'Uneven ground ahead', body: 'Take care with your next step.', icon: Footprints }
+  return { title: alertLabel(type), body: 'Your glasses have shared an update.', icon: Eye }
 }
 
 export default function Dashboard() {
-  const { device, status, events, loading } = useDevice()
-
-  if (loading) {
-    return (
-      <Layout title="Dashboard">
-        <p className="text-mist-400 text-sm">Loading device…</p>
-      </Layout>
-    )
-  }
-
+  const { device, status, events, loading, playPreviewScene } = useDevice()
   const state = connectionState(device, status)
-  const lastEvent = events?.[0]
+  const copy = statusCopy(status)
+  const HeroIcon = copy.icon
+  const latest = events?.[0]
+
+  if (loading) return <Layout title="Divya Drishti"><p className="text-mist-400 text-sm">Getting your device ready…</p></Layout>
 
   return (
     <Layout
-      title={device?.name ?? 'Divya Drishti'}
-      subtitle={state === 'offline' ? 'Last seen unavailable' : `Last update ${timeAgo(status?.updated_at)}`}
+      title="Divya Drishti"
+      subtitle={state === 'offline' ? 'Your glasses are not reachable right now' : 'Your companion is connected'}
       action={<StatusPulse state={state} />}
     >
       <div className="space-y-4">
-        <Card
-          eyebrow="Current status"
-          title={alertLabel(status?.current_alert ?? 'path_clear')}
-          className={isHazardEvent(status?.current_alert) ? 'border-signal-500/40' : ''}
-        >
-          <p className="text-sm text-mist-400">
-            Mode: <span className="text-mist-200">{status?.mode === 'camera_fallback' ? 'Camera fallback' : 'ToF sensing'}</span>
-          </p>
-        </Card>
+        {isDemoMode && (
+          <div className="inline-flex items-center gap-1.5 rounded-full bg-night-800 px-3 py-1 text-xs font-medium text-mist-300">
+            <Sparkles size={13} className="text-signal-400" /> Preview experience
+          </div>
+        )}
 
-        <Card eyebrow="Power" title="Battery">
-          <div className="flex items-center gap-3">
-            <BatteryMedium size={22} className="text-signal-400" />
-            <div className="flex-1">
-              <div className="h-2 rounded-full bg-night-700 overflow-hidden">
-                <div
-                  className="h-full bg-signal-500 rounded-full transition-all"
-                  style={{ width: `${status?.battery_pct ?? 0}%` }}
-                />
-              </div>
-            </div>
-            <span className="font-data text-sm text-mist-200">
-              {status?.battery_pct != null ? `${Math.round(status.battery_pct)}%` : '—'}
+        <section className={`overflow-hidden rounded-3xl border p-5 ${state === 'alert' ? 'border-signal-500/50 bg-signal-500/10' : 'border-safe-500/30 bg-safe-500/10'}`}>
+          <div className="flex items-start gap-4">
+            <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${state === 'alert' ? 'bg-signal-500 text-night-950' : 'bg-safe-500 text-night-950'}`}>
+              <HeroIcon size={24} strokeWidth={2.5} />
             </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-mist-400">Live guidance</p>
+              <h2 className="mt-1 font-display text-2xl font-semibold tracking-tight text-mist-100">{copy.title}</h2>
+              <p className="mt-1 text-sm leading-6 text-mist-300">{copy.body}</p>
+            </div>
+          </div>
+          <button onClick={() => speakGuidance(`${copy.title}. ${copy.body}`)} className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-signal-300">
+            <Volume2 size={16} /> Hear this update
+          </button>
+        </section>
+
+        <Card title="Your glasses" eyebrow="Connected now">
+          <div className="grid grid-cols-3 divide-x divide-night-700">
+            <div className="pr-3"><BatteryMedium size={19} className="mb-2 text-signal-400" /><p className="font-data text-lg text-mist-100">{Math.round(status?.battery_pct ?? 0)}%</p><p className="mt-0.5 text-xs text-mist-500">Battery</p></div>
+            <div className="px-3"><Radio size={19} className="mb-2 text-safe-400" /><p className="text-lg font-semibold text-mist-100">{state === 'offline' ? 'Away' : 'Ready'}</p><p className="mt-0.5 text-xs text-mist-500">Connection</p></div>
+            <div className="pl-3"><Eye size={19} className="mb-2 text-signal-400" /><p className="text-lg font-semibold text-mist-100">{status?.mode === 'camera_fallback' ? 'Camera' : 'Sensing'}</p><p className="mt-0.5 text-xs text-mist-500">Guidance</p></div>
           </div>
         </Card>
 
-        <Card eyebrow="Sensor health" title="Hardware status">
-          <div className="grid grid-cols-2 gap-2.5">
-            <SensorPill ok={status?.tof_left_ok} label="ToF Left" Icon={Radar} />
-            <SensorPill ok={status?.tof_right_ok} label="ToF Right" Icon={Radar} />
-            <SensorPill ok={status?.camera_ok} label="Camera" Icon={Camera} />
-            <SensorPill ok={status?.mic_ok} label="Microphone" Icon={Ear} />
-          </div>
+        <Card title="Latest update" eyebrow="Recent activity" action={<ChevronRight size={18} className="text-mist-500" />}>
+          <p className="text-sm font-medium text-mist-200">{latest ? alertLabel(latest.event_type) : 'No recent updates'}</p>
+          <p className="mt-1 text-sm text-mist-500">{latest ? `${timeAgo(latest.created_at)} · Your activity is safely saved here.` : 'Updates from your glasses will appear here.'}</p>
         </Card>
 
-        <Card eyebrow="Most recent" title={lastEvent ? alertLabel(lastEvent.event_type) : 'No alerts yet'}>
-          <p className="text-sm text-mist-400">{lastEvent ? timeAgo(lastEvent.created_at) : 'Alerts will appear here as they happen.'}</p>
-        </Card>
+        {isDemoMode && (
+          <Card title="Feel the guidance" eyebrow="Live preview">
+            <p className="mb-4 text-sm leading-6 text-mist-400">Every preview speaks an alert and vibrates your phone, like the glasses will do in use.</p>
+            <button
+              onClick={() => signalGuidance({ text: 'Obstacle ahead. Chair, about 60 centimetres away.', isHazard: true })}
+              className="mb-3 flex w-full items-center justify-center gap-2 rounded-xl bg-signal-500 px-4 py-3 text-sm font-bold text-night-950 active:scale-[0.99]"
+            >
+              <Waves size={17} /> Test obstacle alert
+            </button>
+            <div className="grid grid-cols-2 gap-2">
+              {previewScenes.map((scene) => (
+                <button key={scene.id} onClick={() => playPreviewScene(scene)} className="rounded-xl border border-night-700 bg-night-800 px-3 py-3 text-left text-sm font-medium text-mist-200 transition hover:border-signal-500/50 hover:bg-night-700 active:scale-[0.98]">
+                  <span className="block">{scene.label}</span>
+                  <span className="mt-1 block text-xs font-normal text-mist-500">Voice + vibration</span>
+                </button>
+              ))}
+            </div>
+          </Card>
+        )}
       </div>
     </Layout>
   )

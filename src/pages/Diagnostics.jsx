@@ -1,11 +1,12 @@
 import { useState } from 'react'
-import { PlayCircle, Cpu } from 'lucide-react'
+import { CheckCircle2, HeartPulse, PlayCircle } from 'lucide-react'
 import Layout from '../components/Layout'
 import Card from '../components/Card'
 import Button from '../components/Button'
-import { supabase } from '../lib/supabaseClient'
+import { supabase, isDemoMode } from '../lib/supabaseClient'
 import { useDevice } from '../context/DeviceContext'
 import { timeAgo } from '../lib/format'
+import { signalGuidance } from '../services/sensoryFeedback'
 
 function Row({ label, value, ok }) {
   return (
@@ -26,6 +27,12 @@ export default function Diagnostics() {
   const runSelfTest = async () => {
     if (!device) return
     setRequesting(true)
+    if (isDemoMode) {
+      setRequesting(false)
+      setRequested(true)
+      signalGuidance({ text: 'Self test complete. Your glasses are ready to guide you.' })
+      return
+    }
     await supabase.from('device_events').insert({
       device_id: device.id,
       event_type: 'system',
@@ -33,38 +40,44 @@ export default function Diagnostics() {
     })
     setRequesting(false)
     setRequested(true)
+    signalGuidance({ text: 'Self test requested. Your glasses will check their sensors shortly.' })
   }
 
   return (
-    <Layout title="Diagnostics" subtitle="Sensor and system detail">
+    <Layout title="Device care" subtitle="A quick check of your glasses">
       <div className="space-y-4">
-        <Card eyebrow="Device" title={device?.name ?? 'Divya Drishti'}>
-          <Row label="Device ID" value={device?.id?.slice(0, 8) ?? '—'} />
+        <Card eyebrow="Your device" title={device?.name ?? 'Divya Drishti'}>
           <Row label="Paired" value={device?.paired_at ? timeAgo(device.paired_at) : '—'} />
-          <Row label="Last seen" value={device?.last_seen_at ? timeAgo(device.last_seen_at) : '—'} />
-          <Row label="Mode" value={status?.mode === 'camera_fallback' ? 'Camera fallback' : 'ToF sensing'} />
+          <Row label="Last update" value={device?.last_seen_at ? timeAgo(device.last_seen_at) : '—'} />
+          <Row label="Guidance" value={status?.mode === 'camera_fallback' ? 'Camera support' : 'Obstacle sensing'} />
         </Card>
 
-        <Card eyebrow="Sensors" title="Live readings">
-          <Row label="ToF Left" value={status?.tof_left_ok ? 'Online' : 'Unavailable'} ok={status?.tof_left_ok} />
-          <Row label="ToF Right" value={status?.tof_right_ok ? 'Online' : 'Unavailable'} ok={status?.tof_right_ok} />
+        <Card eyebrow="Health" title="Everything looks good">
+          <Row label="Left sensing" value={status?.tof_left_ok ? 'Working well' : 'Needs attention'} ok={status?.tof_left_ok} />
+          <Row label="Right sensing" value={status?.tof_right_ok ? 'Working well' : 'Needs attention'} ok={status?.tof_right_ok} />
           <Row label="Camera" value={status?.camera_ok ? 'Online' : 'Unavailable'} ok={status?.camera_ok} />
           <Row label="Microphone" value={status?.mic_ok ? 'Online' : 'Unavailable'} ok={status?.mic_ok} />
         </Card>
 
-        <Card eyebrow="Maintenance" title="Self-test">
+        <Card eyebrow="Confidence check" title="Run a quick self-test">
           <p className="text-sm text-mist-400 mb-4">
-            Runs the startup self-test sequence on the glasses — motor pulse and audio confirmation.
+            Your glasses will check their sensing, sound, and vibration feedback.
           </p>
           <Button onClick={runSelfTest} disabled={requesting || !device} className="w-full">
             <PlayCircle size={16} />
-            {requesting ? 'Requesting…' : requested ? 'Self-test requested' : 'Run self-test'}
+            {requesting ? 'Starting check…' : requested ? 'Self-test complete' : 'Run self-test'}
           </Button>
         </Card>
 
+        {requested && (
+          <div className="flex items-center gap-2 justify-center rounded-xl bg-safe-500/10 px-4 py-3 text-sm text-safe-400">
+            <CheckCircle2 size={18} /> Your glasses are ready to guide you.
+          </div>
+        )}
+
         <div className="flex items-center gap-2 justify-center text-xs text-mist-500 pt-2">
-          <Cpu size={14} />
-          <span>Divya Drishti companion app v0.1.0</span>
+          <HeartPulse size={14} />
+          <span>Designed to support every journey</span>
         </div>
       </div>
     </Layout>

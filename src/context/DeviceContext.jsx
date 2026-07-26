@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
-import { supabase } from '../lib/supabaseClient'
+import { supabase, isDemoMode } from '../lib/supabaseClient'
 import { useAuth } from './AuthContext'
+import { createDemoEvent, demoDevice, demoEvents, demoStatus } from '../lib/demoData'
+import { signalGuidance } from '../services/sensoryFeedback'
 
 const DeviceContext = createContext(undefined)
 
@@ -12,6 +14,14 @@ export function DeviceProvider({ children }) {
   const [loading, setLoading] = useState(true)
 
   const loadDevice = useCallback(async () => {
+    if (isDemoMode) {
+      setDevice(demoDevice)
+      setStatus(demoStatus)
+      setEvents(demoEvents)
+      setLoading(false)
+      return
+    }
+
     if (!user) {
       setDevice(null)
       setStatus(null)
@@ -52,9 +62,26 @@ export function DeviceProvider({ children }) {
     loadDevice()
   }, [loadDevice])
 
+  const playPreviewScene = useCallback((scene) => {
+    if (!isDemoMode) return
+    const event = createDemoEvent(scene)
+    setDevice((current) => ({ ...(current ?? demoDevice), last_seen_at: event.created_at }))
+    setStatus((current) => ({
+      ...(current ?? demoStatus),
+      current_alert: scene.event_type,
+      mode: scene.id === 'ground' ? 'camera_fallback' : 'tof',
+      updated_at: event.created_at,
+    }))
+    setEvents((current) => [event, ...current].slice(0, 200))
+    signalGuidance({
+      text: `${scene.title}. ${scene.message}`,
+      isHazard: scene.event_type !== 'path_clear',
+    })
+  }, [])
+
   // Live updates: device_status changes + new device_events rows
   useEffect(() => {
-    if (!device) return
+    if (isDemoMode || !device) return undefined
 
     const channel = supabase
       .channel(`device-${device.id}`)
@@ -76,6 +103,13 @@ export function DeviceProvider({ children }) {
   }, [device])
 
   const pairDevice = async (pairingCode) => {
+    if (isDemoMode) {
+      if (pairingCode && pairingCode !== 'DEMO01') {
+        throw new Error('Use DEMO01 to pair the local demo device.')
+      }
+      return demoDevice
+    }
+
     const { data, error } = await supabase
       .from('devices')
       .update({ owner_id: user.id, paired_at: new Date().toISOString() })
@@ -91,7 +125,7 @@ export function DeviceProvider({ children }) {
     return data
   }
 
-  const value = { device, status, events, loading, pairDevice, refresh: loadDevice }
+  const value = { device, status, events, loading, pairDevice, playPreviewScene, refresh: loadDevice }
 
   return <DeviceContext.Provider value={value}>{children}</DeviceContext.Provider>
 }

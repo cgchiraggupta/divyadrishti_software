@@ -3,6 +3,7 @@ import { AlertTriangle, Mic, ShieldCheck, Settings as SettingsIcon } from 'lucid
 import Layout from '../components/Layout'
 import { useDevice } from '../context/DeviceContext'
 import { alertLabel, formatTimestamp, isHazardEvent } from '../lib/format'
+import { signalGuidance, tapFeedback } from '../services/sensoryFeedback'
 
 const FILTERS = [
   { id: 'all', label: 'All' },
@@ -28,13 +29,22 @@ export default function History() {
     return events.filter((e) => e.event_type === filter)
   }, [events, filter])
 
+  const replayEvent = (event) => {
+    const distance = event.detail?.distance_mm ? ` ${Math.round(event.detail.distance_mm / 10) / 100} metres away.` : ''
+    const message = event.detail?.response ?? event.detail?.message ?? `${alertLabel(event.event_type)}.${distance}`
+    signalGuidance({ text: message, isHazard: isHazardEvent(event.event_type) })
+  }
+
   return (
     <Layout title="Alert History" subtitle="Everything Divya Drishti has logged">
       <div className="flex gap-2 overflow-x-auto pb-4 -mx-1 px-1">
         {FILTERS.map((f) => (
           <button
             key={f.id}
-            onClick={() => setFilter(f.id)}
+            onClick={() => {
+              setFilter(f.id)
+              tapFeedback()
+            }}
             className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-medium border transition-colors ${
               filter === f.id
                 ? 'bg-signal-500 text-night-950 border-signal-500'
@@ -59,10 +69,11 @@ export default function History() {
           const Icon = eventIcon(event.event_type)
           const hazard = isHazardEvent(event.event_type)
           return (
-            <li
-              key={event.id}
-              className="flex items-start gap-3 rounded-xl border border-night-700 bg-night-900 p-3.5"
-            >
+            <li key={event.id}>
+              <button
+                onClick={() => replayEvent(event)}
+                className="flex w-full items-start gap-3 rounded-xl border border-night-700 bg-night-900 p-3.5 text-left transition active:scale-[0.99] hover:border-night-600"
+              >
               <span
                 className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
                   hazard ? 'bg-signal-500/15 text-signal-400' : 'bg-night-700 text-mist-300'
@@ -75,8 +86,13 @@ export default function History() {
                 {event.detail?.command && (
                   <p className="text-xs text-mist-400 truncate">"{event.detail.command}"</p>
                 )}
+                {event.detail?.response && <p className="mt-1 text-xs text-mist-400">{event.detail.response}</p>}
+                {event.detail?.object_label && (
+                  <p className="mt-1 text-xs text-mist-400">{event.detail.object_label} {event.detail?.distance_mm ? `· ${Math.round(event.detail.distance_mm / 10) / 100} m away` : ''}</p>
+                )}
               </div>
               <span className="font-data text-xs text-mist-500 shrink-0">{formatTimestamp(event.created_at)}</span>
+              </button>
             </li>
           )
         })}

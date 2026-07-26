@@ -6,7 +6,8 @@
 -- ─────────────────────────────────────────────────────────────
 create table if not exists devices (
   id uuid primary key default gen_random_uuid(),
-  owner_id uuid not null references auth.users(id) on delete cascade,
+  -- Clerk user ID (for example, user_...). Null until a device is claimed.
+  owner_id text,
   name text not null default 'Divya Drishti',
   pairing_code text unique, -- short code shown/printed on the Pi during setup
   paired_at timestamptz,
@@ -58,7 +59,7 @@ create table if not exists device_settings (
 
 -- ─────────────────────────────────────────────────────────────
 -- Row Level Security — an owner only sees their own device's data.
--- Extend later with a device_members table for caregiver access.
+-- Configure Supabase third-party JWT verification for Clerk before enabling production access.
 -- ─────────────────────────────────────────────────────────────
 alter table devices enable row level security;
 alter table device_status enable row level security;
@@ -67,23 +68,23 @@ alter table device_settings enable row level security;
 
 create policy "Owners can manage their devices"
   on devices for all
-  using (auth.uid() = owner_id)
-  with check (auth.uid() = owner_id);
+  using ((auth.jwt() ->> 'sub') = owner_id)
+  with check ((auth.jwt() ->> 'sub') = owner_id);
 
 create policy "Owners can read/write their device status"
   on device_status for all
-  using (exists (select 1 from devices d where d.id = device_id and d.owner_id = auth.uid()))
-  with check (exists (select 1 from devices d where d.id = device_id and d.owner_id = auth.uid()));
+  using (exists (select 1 from devices d where d.id = device_id and d.owner_id = (auth.jwt() ->> 'sub')))
+  with check (exists (select 1 from devices d where d.id = device_id and d.owner_id = (auth.jwt() ->> 'sub')));
 
 create policy "Owners can read/write their device events"
   on device_events for all
-  using (exists (select 1 from devices d where d.id = device_id and d.owner_id = auth.uid()))
-  with check (exists (select 1 from devices d where d.id = device_id and d.owner_id = auth.uid()));
+  using (exists (select 1 from devices d where d.id = device_id and d.owner_id = (auth.jwt() ->> 'sub')))
+  with check (exists (select 1 from devices d where d.id = device_id and d.owner_id = (auth.jwt() ->> 'sub')));
 
 create policy "Owners can read/write their device settings"
   on device_settings for all
-  using (exists (select 1 from devices d where d.id = device_id and d.owner_id = auth.uid()))
-  with check (exists (select 1 from devices d where d.id = device_id and d.owner_id = auth.uid()));
+  using (exists (select 1 from devices d where d.id = device_id and d.owner_id = (auth.jwt() ->> 'sub')))
+  with check (exists (select 1 from devices d where d.id = device_id and d.owner_id = (auth.jwt() ->> 'sub')));
 
 -- Enable Realtime on the tables the dashboard subscribes to.
 alter publication supabase_realtime add table device_status;
