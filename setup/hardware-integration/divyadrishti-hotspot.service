@@ -1,0 +1,14 @@
+[Unit]
+Description=Divya Drishti Wi-Fi setup hotspot fallback
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/divyadrishti-hotspot-fallback
+Restart=always
+RestartSec=10
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target

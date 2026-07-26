@@ -21,5 +21,7 @@ switches between setup hotspot mode and normal Wi-Fi client mode.
 - Store Wi-Fi secrets only in the OS Wi-Fi manager configuration with `0600`
   permissions; never in the React repo or Supabase.
 
-Do not enable this while connected remotely over `wlan0`: enabling the hotspot
-intentionally disconnects the current Wi-Fi session.
+The committed implementation includes the provisioning service. It saves a
+NetworkManager connection profile before stopping the hotspot, then connects to
+the selected Wi-Fi. Do not start setup mode manually while connected remotely
+over `wlan0`: that intentionally disconnects the current Wi-Fi session.

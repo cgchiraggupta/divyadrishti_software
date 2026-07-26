@@ -20,10 +20,12 @@ export default function WifiSetup() {
         headers: { 'Content-Type': 'application/json', 'X-Divya-Pairing-Code': 'RA46W4' },
         body: JSON.stringify({ ssid, password }),
       })
-      if (!response.ok) throw new Error()
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(result.error || 'The glasses could not save this Wi-Fi network.')
       setMessage('Saved. Your glasses are joining this Wi-Fi now. Reconnect your phone to the same network, then reopen Divya Drishti.')
-    } catch {
-      setMessage('Connect your phone to the DivyaDrishti-Setup Wi-Fi first, then try again.')
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : ''
+      setMessage(detail || 'Connect your phone to the DivyaDrishti-Setup Wi-Fi first, then try again.')
     } finally {
       setSaving(false)
     }
