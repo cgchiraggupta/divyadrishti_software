@@ -9,8 +9,9 @@ import { isDemoMode } from '../lib/supabaseClient'
 import { signalGuidance, speakGuidance } from '../services/sensoryFeedback'
 
 function connectionState(device, status) {
-  if (!device?.last_seen_at) return 'offline'
-  if (Date.now() - new Date(device.last_seen_at).getTime() > 60_000) return 'offline'
+  const lastSeenAt = status?.updated_at ?? device?.last_seen_at
+  if (!lastSeenAt) return 'offline'
+  if (Date.now() - new Date(lastSeenAt).getTime() > 60_000) return 'offline'
   if (status?.current_alert && isHazardEvent(status.current_alert)) return 'alert'
   return 'online'
 }

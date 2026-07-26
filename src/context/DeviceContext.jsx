@@ -111,11 +111,7 @@ export function DeviceProvider({ children }) {
     }
 
     const { data, error } = await supabase
-      .from('devices')
-      .update({ owner_id: user.id, paired_at: new Date().toISOString() })
-      .eq('pairing_code', pairingCode)
-      .is('owner_id', null)
-      .select()
+      .rpc('claim_device', { pairing_code_input: pairingCode })
       .maybeSingle()
 
     if (error) throw error
