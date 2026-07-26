@@ -1,14 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import { supabase, isDemoMode } from '../lib/supabaseClient'
-import { useAuth } from './AuthContext'
 import { createDemoEvent, demoDevice, demoEvents, demoStatus } from '../lib/demoData'
 import { signalGuidance } from '../services/sensoryFeedback'
 import { getNearbyDeviceStatus, sendNearbyCommand } from '../services/localDeviceLink'
 
 const DeviceContext = createContext(undefined)
+const PAIRING_CODE_KEY = 'divya-drishti-pairing-code'
 
 export function DeviceProvider({ children }) {
-  const { user } = useAuth()
   const [device, setDevice] = useState(null)
   const [status, setStatus] = useState(null)
   const [events, setEvents] = useState([])
@@ -24,7 +23,8 @@ export function DeviceProvider({ children }) {
       return
     }
 
-    if (!user) {
+    const pairingCode = window.localStorage.getItem(PAIRING_CODE_KEY)
+    if (!pairingCode) {
       setDevice(null)
       setStatus(null)
       setEvents([])
@@ -36,11 +36,10 @@ export function DeviceProvider({ children }) {
     const { data: devices } = await supabase
       .from('devices')
       .select('*')
-      .eq('owner_id', user.id)
-      .order('paired_at', { ascending: false })
-      .limit(1)
+      .eq('pairing_code', pairingCode)
+      .maybeSingle()
 
-    const activeDevice = devices?.[0] ?? null
+    const activeDevice = devices ?? null
     setDevice(activeDevice)
 
     if (activeDevice) {
@@ -58,7 +57,7 @@ export function DeviceProvider({ children }) {
     }
 
     setLoading(false)
-  }, [user])
+  }, [])
 
   useEffect(() => {
     loadDevice()
@@ -135,19 +134,18 @@ export function DeviceProvider({ children }) {
 
   const pairDevice = async (pairingCode) => {
     if (isDemoMode) {
-      if (pairingCode && pairingCode !== 'DEMO01') {
-        throw new Error('Use DEMO01 to pair the local demo device.')
-      }
-      return demoDevice
+      window.localStorage.setItem(PAIRING_CODE_KEY, pairingCode || 'DEMO01')
+      return { ...demoDevice, pairing_code: pairingCode || 'DEMO01' }
     }
 
     const { data, error } = await supabase
-      .rpc('claim_device', { pairing_code_input: pairingCode })
+      .rpc('claim_device_public', { pairing_code_input: pairingCode })
       .maybeSingle()
 
     if (error) throw error
     if (!data) throw new Error('That pairing code was not found or is already linked to a device.')
 
+    window.localStorage.setItem(PAIRING_CODE_KEY, pairingCode)
     await loadDevice()
     return data
   }

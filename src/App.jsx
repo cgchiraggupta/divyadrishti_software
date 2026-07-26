@@ -1,20 +1,11 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { AuthProvider, useAuth } from './context/AuthContext'
 import { DeviceProvider, useDevice } from './context/DeviceContext'
 import { isDemoMode, isSupabaseConfigured } from './lib/supabaseClient'
-import Login from './pages/Login'
 import Pairing from './pages/Pairing'
 import Dashboard from './pages/Dashboard'
 import History from './pages/History'
 import Settings from './pages/Settings'
 import Diagnostics from './pages/Diagnostics'
-
-function RequireAuth({ children }) {
-  const { user, loading } = useAuth()
-  if (loading) return <FullScreenLoader />
-  if (!user) return <Navigate to="/login" replace />
-  return children
-}
 
 function RequireDevice({ children }) {
   const { device, loading } = useDevice()
@@ -34,53 +25,37 @@ function FullScreenLoader() {
 function AppRoutes() {
   return (
     <Routes>
-      <Route path="/login" element={<Login />} />
-      <Route
-        path="/pairing"
-        element={
-          <RequireAuth>
-            <Pairing />
-          </RequireAuth>
-        }
-      />
+      <Route path="/pairing" element={<Pairing />} />
       <Route
         path="/"
         element={
-          <RequireAuth>
-            <RequireDevice>
-              <Dashboard />
-            </RequireDevice>
-          </RequireAuth>
+          <RequireDevice>
+            <Dashboard />
+          </RequireDevice>
         }
       />
       <Route
         path="/history"
         element={
-          <RequireAuth>
-            <RequireDevice>
-              <History />
-            </RequireDevice>
-          </RequireAuth>
+          <RequireDevice>
+            <History />
+          </RequireDevice>
         }
       />
       <Route
         path="/settings"
         element={
-          <RequireAuth>
-            <RequireDevice>
-              <Settings />
-            </RequireDevice>
-          </RequireAuth>
+          <RequireDevice>
+            <Settings />
+          </RequireDevice>
         }
       />
       <Route
         path="/diagnostics"
         element={
-          <RequireAuth>
-            <RequireDevice>
-              <Diagnostics />
-            </RequireDevice>
-          </RequireAuth>
+          <RequireDevice>
+            <Diagnostics />
+          </RequireDevice>
         }
       />
       <Route path="*" element={<Navigate to="/" replace />} />
@@ -95,11 +70,9 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <DeviceProvider>
-          <AppRoutes />
-        </DeviceProvider>
-      </AuthProvider>
+      <DeviceProvider>
+        <AppRoutes />
+      </DeviceProvider>
     </BrowserRouter>
   )
 }

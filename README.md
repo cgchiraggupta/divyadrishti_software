@@ -2,14 +2,13 @@
 
 A companion app for the Divya Drishti assistive glasses: pair a device, watch live status,
 review alert history, and tune how it alerts you. Built as a React web app (Vite + Tailwind +
-Clerk + Supabase), packaged for Android with Capacitor.
+Supabase), packaged for Android with Capacitor.
 
 ## Stack
 
 - **Vite + React** — app shell
 - **Tailwind CSS v4** — styling, via a small design-token theme in `src/index.css`
 - **React Router** — navigation
-- **Clerk** — user authentication
 - **Supabase** — Postgres database and Realtime for live device status
 - **Capacitor** — Android app shell (`com.divyadrishti.app`)
 
@@ -17,7 +16,7 @@ Clerk + Supabase), packaged for Android with Capacitor.
 
 ```bash
 npm install
-cp .env.example .env   # fill in Clerk + Supabase public configuration
+cp .env.example .env   # fill in Supabase public configuration
 npm run dev
 ```
 
@@ -46,40 +45,33 @@ To create a debug APK on a machine with the Android SDK configured:
 npm run android:build
 ```
 
-## Authentication setup
+## Access model
 
-Clerk replaces the former Supabase Google OAuth client flow. Add your Clerk publishable key as
-`VITE_CLERK_PUBLISHABLE_KEY`; the Vite entrypoint loads `ClerkProvider` outside demo mode.
-
-Configure a Clerk JWT template named `supabase` before using real Supabase data. The app passes
-that session token to Supabase for authenticated requests.
+There is no account, sign-in, or Google authentication. Anyone can use the app: enter the
+six-character pairing code spoken by the glasses to open that device's dashboard. The code is
+also used for the nearby same-Wi-Fi link between the phone and the glasses.
 
 ## Supabase setup
 
 1. Create a Supabase project.
-2. Run `supabase/schema.sql` in the SQL editor — creates `devices`, `device_status`,
-   `device_events`, `device_settings`, plus Row Level Security policies scoped to the Clerk user,
-   and enables Realtime on `device_status` / `device_events`.
-3. Configure Supabase third-party JWT verification for Clerk so the JWT
-   `sub` claim is available to the Row Level Security policies.
-4. Copy your Supabase project URL and anon key into `.env`, and set `VITE_DEMO_MODE=false`.
+2. Run `supabase/schema.sql`, then the migrations in `supabase/migrations/` in order.
+3. Copy your Supabase project URL and anon key into `.env`, and set `VITE_DEMO_MODE=false`.
 
 ## Pairing model
 
 Each physical device is expected to insert its own row into `devices` on first boot
-(with a `pairing_code`, `owner_id = null`). The app's Pairing screen looks up that code
-and claims the device by setting `owner_id` to the signed-in user. The Raspberry Pi side
-of this (generating a code, writing it to Supabase) is a small addition to the existing
-`divya_drishti_final.py` script — not yet wired up in this repo.
+(with a pairing code). The app stores that code on the phone after pairing. The Pi script also
+provides a nearby same-Wi-Fi status endpoint on port `8765`; its setup-only test service lives in
+`setup/hardware-integration/divyadrishti_local_link.py`.
 
 ## Project structure
 
 ```
 src/
   components/   Layout, BottomNav, Card, Button, StatusPulse (signature live-sensing indicator)
-  context/      AuthContext (Clerk auth/demo), DeviceContext (paired device + Realtime status/events)
+  context/      DeviceContext (paired device + Realtime status/events)
   lib/          supabaseClient.js, format.js (labels/timestamps)
-  pages/        Login, Pairing, Dashboard, History, Settings, Diagnostics
+  pages/        Pairing, Dashboard, History, Settings, Diagnostics
 supabase/
   schema.sql    Full database schema + RLS policies
 ```
@@ -88,12 +80,12 @@ supabase/
 
 Short version of the phased plan:
 
-- [x] Foundation — scaffold, Clerk auth boundary, routing, Supabase schema, and local demo mode
+- [x] Foundation — scaffold, pairing-first routing, Supabase schema, and local demo mode
 - [x] Companion UI — dashboard, history, settings, diagnostics, and pairing screens
 - [x] Android shell — Capacitor configured and synced to an Android native project
 - [ ] Now — complete the polished preview experience: simulated pairing, Wi-Fi setup, connection
   state, alerts, object-recognition outcomes, and command acknowledgements
-- [ ] Now — complete Clerk-to-Supabase session/RLS setup and test the Android APK on a device
+- [x] Nearby Wi-Fi link — direct phone-to-Pi availability verified on Android
 - [ ] Hardware integration — BLE pairing/Wi-Fi provisioning and Pi-side status, event, command,
   and pairing integration; see `setup/hardware-integration/`
 - [ ] Vision upgrade — object/sign recognition and OCR, with safe obstacle-and-distance fallback

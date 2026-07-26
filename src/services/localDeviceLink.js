@@ -9,7 +9,6 @@ async function request(path, pairingCode, options = {}) {
       ...options,
       signal: controller.signal,
       headers: {
-        'Content-Type': 'application/json',
         'X-Divya-Pairing-Code': pairingCode,
         ...options.headers,
       },
@@ -28,6 +27,7 @@ export function getNearbyDeviceStatus(pairingCode) {
 export function sendNearbyCommand(pairingCode, command) {
   return request('/v1/command', pairingCode, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ command }),
   })
 }

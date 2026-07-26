@@ -16,7 +16,6 @@
     "@capacitor/android": "^8.4.2",
     "@capacitor/core": "^8.4.2",
     "@capacitor/haptics": "^8.0.2",
-    "@clerk/react": "^6.12.7",
     "@supabase/supabase-js": "^2.110.8",
     "lucide-react": "^1.26.0",
     "react": "^19.2.7",

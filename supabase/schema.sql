@@ -6,7 +6,7 @@
 -- ─────────────────────────────────────────────────────────────
 create table if not exists devices (
   id uuid primary key default gen_random_uuid(),
-  -- Clerk user ID (for example, user_...). Null until a device is claimed.
+  -- Reserved for a future optional account/owner model.
   owner_id text,
   name text not null default 'Divya Drishti',
   pairing_code text unique, -- short code shown/printed on the Pi during setup
@@ -58,65 +58,47 @@ create table if not exists device_settings (
 );
 
 -- ─────────────────────────────────────────────────────────────
--- Row Level Security — an owner only sees their own device's data.
--- Configure Supabase third-party JWT verification for Clerk before enabling production access.
+-- Row Level Security — pairing-first public companion app.
+-- The app does not require an account. The pairing code is the device access key.
 -- ─────────────────────────────────────────────────────────────
 alter table devices enable row level security;
 alter table device_status enable row level security;
 alter table device_events enable row level security;
 alter table device_settings enable row level security;
 
-create policy "Owners can manage their devices"
-  on devices for all
-  using ((auth.jwt() ->> 'sub') = owner_id)
-  with check ((auth.jwt() ->> 'sub') = owner_id);
+create policy "Anyone can find glasses by pairing code" on devices for select to anon, authenticated using (true);
+create policy "Anyone can read paired device status" on device_status for select to anon, authenticated using (true);
+create policy "Anyone can read paired device events" on device_events for select to anon, authenticated using (true);
+create policy "Anyone can add device events" on device_events for insert to anon, authenticated with check (true);
+create policy "Anyone can read device settings" on device_settings for select to anon, authenticated using (true);
+create policy "Anyone can add device settings" on device_settings for insert to anon, authenticated with check (true);
+create policy "Anyone can update device settings" on device_settings for update to anon, authenticated using (true) with check (true);
 
-create policy "Owners can read/write their device status"
-  on device_status for all
-  using (exists (select 1 from devices d where d.id = device_id and d.owner_id = (auth.jwt() ->> 'sub')))
-  with check (exists (select 1 from devices d where d.id = device_id and d.owner_id = (auth.jwt() ->> 'sub')));
-
-create policy "Owners can read/write their device events"
-  on device_events for all
-  using (exists (select 1 from devices d where d.id = device_id and d.owner_id = (auth.jwt() ->> 'sub')))
-  with check (exists (select 1 from devices d where d.id = device_id and d.owner_id = (auth.jwt() ->> 'sub')));
-
-create policy "Owners can read/write their device settings"
-  on device_settings for all
-  using (exists (select 1 from devices d where d.id = device_id and d.owner_id = (auth.jwt() ->> 'sub')))
-  with check (exists (select 1 from devices d where d.id = device_id and d.owner_id = (auth.jwt() ->> 'sub')));
-
--- Claims a device by its one-time pairing code without making unclaimed devices
--- readable to every signed-in person. See the matching migration for existing projects.
-create or replace function public.claim_device(pairing_code_input text)
+create or replace function public.claim_device_public(pairing_code_input text)
 returns public.devices
 language plpgsql
 security definer
 set search_path = public
 as $$
 declare
-  claimant text := auth.jwt() ->> 'sub';
   claimed public.devices;
 begin
-  if claimant is null or claimant = '' then
-    raise exception 'Authentication required' using errcode = '28000';
-  end if;
-
-  update public.devices
-  set owner_id = claimant, paired_at = now()
-  where pairing_code = upper(trim(pairing_code_input)) and owner_id is null
-  returning * into claimed;
+  select * into claimed from public.devices
+  where pairing_code = upper(trim(pairing_code_input));
 
   if not found then
-    raise exception 'Pairing code is invalid or already linked to a device' using errcode = 'P0002';
+    raise exception 'Pairing code is invalid' using errcode = 'P0002';
   end if;
+
+  update public.devices set paired_at = coalesce(paired_at, now())
+  where id = claimed.id returning * into claimed;
 
   return claimed;
 end;
 $$;
 
-revoke all on function public.claim_device(text) from public;
-grant execute on function public.claim_device(text) to authenticated;
+revoke all on function public.claim_device_public(text) from public;
+grant execute on function public.claim_device_public(text) to anon, authenticated;
 
 -- Enable Realtime on the tables the dashboard subscribes to.
 alter publication supabase_realtime add table device_status;

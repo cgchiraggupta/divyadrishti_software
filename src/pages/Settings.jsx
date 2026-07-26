@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Volume2, Vibrate, Ruler, LogOut } from 'lucide-react'
+import { Volume2, Vibrate, Ruler } from 'lucide-react'
 import Layout from '../components/Layout'
 import Card from '../components/Card'
 import Button from '../components/Button'
 import { supabase, isDemoMode } from '../lib/supabaseClient'
 import { useDevice } from '../context/DeviceContext'
-import { useAuth } from '../context/AuthContext'
 import { signalGuidance, tapFeedback } from '../services/sensoryFeedback'
 
 const FEEDBACK_MODES = [
@@ -29,7 +28,6 @@ function getInitialSettings() {
 
 export default function Settings() {
   const { device } = useDevice()
-  const { signOut } = useAuth()
   const [settings, setSettings] = useState(getInitialSettings)
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState(null)
@@ -160,12 +158,6 @@ export default function Settings() {
           {savedAt && <span className="text-xs text-mist-500">Saved</span>}
         </div>
 
-        <div className="pt-6 border-t border-night-800">
-          <Button variant="danger" onClick={signOut} className="w-full">
-            <LogOut size={16} />
-            Sign out
-          </Button>
-        </div>
       </div>
     </Layout>
   )

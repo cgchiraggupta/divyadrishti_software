@@ -26,6 +26,9 @@ function statusCopy(status) {
 export default function Dashboard() {
   const { device, status, events, loading, nearbyLink, playPreviewScene } = useDevice()
   const state = connectionState(device, status)
+  const displayState = nearbyLink.state === 'connected'
+    ? (status?.current_alert && isHazardEvent(status.current_alert) ? 'alert' : 'online')
+    : state
   const copy = statusCopy(status)
   const HeroIcon = copy.icon
   const latest = events?.[0]
@@ -36,7 +39,7 @@ export default function Dashboard() {
     <Layout
       title="Divya Drishti"
       subtitle={nearbyLink.state === 'connected' ? 'Your glasses are nearby on Wi-Fi' : state === 'offline' ? 'Your glasses are not reachable right now' : 'Your companion is connected'}
-      action={<StatusPulse state={state} />}
+      action={<StatusPulse state={displayState} />}
     >
       <div className="space-y-4">
         {isDemoMode && (
@@ -45,9 +48,9 @@ export default function Dashboard() {
           </div>
         )}
 
-        <section className={`overflow-hidden rounded-3xl border p-5 ${state === 'alert' ? 'border-signal-500/50 bg-signal-500/10' : 'border-safe-500/30 bg-safe-500/10'}`}>
+        <section className={`overflow-hidden rounded-3xl border p-5 ${displayState === 'alert' ? 'border-signal-500/50 bg-signal-500/10' : 'border-safe-500/30 bg-safe-500/10'}`}>
           <div className="flex items-start gap-4">
-            <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${state === 'alert' ? 'bg-signal-500 text-night-950' : 'bg-safe-500 text-night-950'}`}>
+            <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${displayState === 'alert' ? 'bg-signal-500 text-night-950' : 'bg-safe-500 text-night-950'}`}>
               <HeroIcon size={24} strokeWidth={2.5} />
             </span>
             <div className="min-w-0 flex-1">
