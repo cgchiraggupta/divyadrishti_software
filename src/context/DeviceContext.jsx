@@ -3,6 +3,7 @@ import { supabase, isDemoMode } from '../lib/supabaseClient'
 import { useAuth } from './AuthContext'
 import { createDemoEvent, demoDevice, demoEvents, demoStatus } from '../lib/demoData'
 import { signalGuidance } from '../services/sensoryFeedback'
+import { getNearbyDeviceStatus, sendNearbyCommand } from '../services/localDeviceLink'
 
 const DeviceContext = createContext(undefined)
 
@@ -12,6 +13,7 @@ export function DeviceProvider({ children }) {
   const [status, setStatus] = useState(null)
   const [events, setEvents] = useState([])
   const [loading, setLoading] = useState(true)
+  const [nearbyLink, setNearbyLink] = useState({ state: 'idle', status: null })
 
   const loadDevice = useCallback(async () => {
     if (isDemoMode) {
@@ -102,6 +104,31 @@ export function DeviceProvider({ children }) {
     }
   }, [device])
 
+  // Prefer a nearby Wi-Fi link for immediate connection feedback. Cloud
+  // Realtime remains the history and away-from-home fallback.
+  useEffect(() => {
+    if (isDemoMode || !device?.pairing_code) {
+      setNearbyLink({ state: 'idle', status: null })
+      return undefined
+    }
+
+    let active = true
+    const checkNearby = async () => {
+      try {
+        const localStatus = await getNearbyDeviceStatus(device.pairing_code)
+        if (active) setNearbyLink({ state: 'connected', status: localStatus })
+      } catch {
+        if (active) setNearbyLink({ state: 'away', status: null })
+      }
+    }
+    checkNearby()
+    const interval = window.setInterval(checkNearby, 8_000)
+    return () => {
+      active = false
+      window.clearInterval(interval)
+    }
+  }, [device])
+
   const pairDevice = async (pairingCode) => {
     if (isDemoMode) {
       if (pairingCode && pairingCode !== 'DEMO01') {
@@ -121,7 +148,17 @@ export function DeviceProvider({ children }) {
     return data
   }
 
-  const value = { device, status, events, loading, pairDevice, playPreviewScene, refresh: loadDevice }
+  const sendNearbyDeviceCommand = async (command) => {
+    if (!device?.pairing_code) throw new Error('Pair your glasses before sending a nearby command.')
+    const localStatus = await sendNearbyCommand(device.pairing_code, command)
+    setNearbyLink({ state: 'connected', status: localStatus })
+    return localStatus
+  }
+
+  const value = {
+    device, status, events, loading, nearbyLink, pairDevice, playPreviewScene,
+    sendNearbyDeviceCommand, refresh: loadDevice,
+  }
 
   return <DeviceContext.Provider value={value}>{children}</DeviceContext.Provider>
 }

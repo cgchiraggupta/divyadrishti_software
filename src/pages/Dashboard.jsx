@@ -24,7 +24,7 @@ function statusCopy(status) {
 }
 
 export default function Dashboard() {
-  const { device, status, events, loading, playPreviewScene } = useDevice()
+  const { device, status, events, loading, nearbyLink, playPreviewScene } = useDevice()
   const state = connectionState(device, status)
   const copy = statusCopy(status)
   const HeroIcon = copy.icon
@@ -35,7 +35,7 @@ export default function Dashboard() {
   return (
     <Layout
       title="Divya Drishti"
-      subtitle={state === 'offline' ? 'Your glasses are not reachable right now' : 'Your companion is connected'}
+      subtitle={nearbyLink.state === 'connected' ? 'Your glasses are nearby on Wi-Fi' : state === 'offline' ? 'Your glasses are not reachable right now' : 'Your companion is connected'}
       action={<StatusPulse state={state} />}
     >
       <div className="space-y-4">
@@ -61,10 +61,10 @@ export default function Dashboard() {
           </button>
         </section>
 
-        <Card title="Your glasses" eyebrow="Connected now">
+        <Card title="Your glasses" eyebrow={nearbyLink.state === 'connected' ? 'Nearby Wi-Fi connection' : 'Connected now'}>
           <div className="grid grid-cols-3 divide-x divide-night-700">
             <div className="pr-3"><BatteryMedium size={19} className="mb-2 text-signal-400" /><p className="font-data text-lg text-mist-100">{Math.round(status?.battery_pct ?? 0)}%</p><p className="mt-0.5 text-xs text-mist-500">Battery</p></div>
-            <div className="px-3"><Radio size={19} className="mb-2 text-safe-400" /><p className="text-lg font-semibold text-mist-100">{state === 'offline' ? 'Away' : 'Ready'}</p><p className="mt-0.5 text-xs text-mist-500">Connection</p></div>
+            <div className="px-3"><Radio size={19} className="mb-2 text-safe-400" /><p className="text-lg font-semibold text-mist-100">{nearbyLink.state === 'connected' ? 'Nearby' : state === 'offline' ? 'Away' : 'Ready'}</p><p className="mt-0.5 text-xs text-mist-500">Connection</p></div>
             <div className="pl-3"><Eye size={19} className="mb-2 text-signal-400" /><p className="text-lg font-semibold text-mist-100">{status?.mode === 'camera_fallback' ? 'Camera' : 'Sensing'}</p><p className="mt-0.5 text-xs text-mist-500">Guidance</p></div>
           </div>
         </Card>
