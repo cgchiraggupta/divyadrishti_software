@@ -69,3 +69,61 @@ when the Pi arrives.
 - A safe device-side authentication/provisioning design for Supabase.
 - Final Pi status, event, command, and acknowledgement payload examples.
 - The supported vision model/API and whether object recognition/OCR runs locally or in the cloud.
+
+## BLE Wi-Fi provisioning (primary path)
+
+The glasses run a BlueZ GATT peripheral so a phone can hand over Wi-Fi
+credentials with no Wi-Fi, router, or internet present. The Wi-Fi hotspot path
+below stays as a fallback.
+
+On the affected Raspberry Pi kernel, BlueZ's D-Bus advertising registration
+can report an active instance without transmitting an advertisement. GATT
+registration remains on D-Bus; `divyadrishti-adv-helper.c` sends the legacy
+Linux MGMT advertising command directly. The helper is supervised by the Python
+provisioner and removes its advertising instance when the service stops.
+
+### GATT contract
+
+Advertised primary service and characteristics (keep in sync with
+`src/services/bleProvisioning.js`). The current 31-byte legacy advertising
+packet deliberately omits a local name, so the app scans by service UUID:
+
+| Role   | UUID                                   | Access        | Payload |
+| ------ | -------------------------------------- | ------------- | ------- |
+| Service| `5f3e0001-2a11-4b0e-9c3a-1f2e3d4c5b6a` | —             | — |
+| RX     | `5f3e0002-2a11-4b0e-9c3a-1f2e3d4c5b6a` | write         | credential JSON, chunked ≤18 bytes |
+| Commit | `5f3e0003-2a11-4b0e-9c3a-1f2e3d4c5b6a` | write         | any 1 byte → validate + join |
+| Status | `5f3e0004-2a11-4b0e-9c3a-1f2e3d4c5b6a` | read, notify  | `idle` / `connecting` / `connected` / `error:*` |
+
+Reassembled RX payload: `{"code":"<pairing>","ssid":"<ssid>","password":"<psk>"}`.
+The commit write validates the pairing code, SSID (1–32 bytes), and password
+(8–63 chars), then runs the same `nmcli` join the HTTP provisioner uses.
+
+**Security:** characteristics are unencrypted and unbonded; the pairing code is
+the only gate and the link is sniffable. Acceptable for a private prototype
+only. A public product must require BLE bonding + encrypted characteristics.
+
+### Deploy on the Pi
+
+```bash
+gcc -O2 -Wall -o /tmp/divyadrishti-adv-helper divyadrishti-adv-helper.c
+sudo install -m 755 /tmp/divyadrishti-adv-helper /usr/local/sbin/divyadrishti-adv-helper
+sudo install -m 755 divyadrishti-ble-provisioner.py /usr/local/sbin/divyadrishti-ble-provisioner
+sudo apt-get install -y python3-dbus python3-gi bluez   # usually already present
+sudo systemctl restart divyadrishti-ble-provisioner.service
+sudo journalctl -u divyadrishti-ble-provisioner.service -n 50 --no-pager
+```
+
+Set `DIVYADRISHTI_PAIRING_CODE` through a device-local systemd drop-in before
+starting the service. Never put the pairing value in this repository.
+
+### End-to-end test sequence
+
+1. Confirm the Pi BLE service is `active (running)`.
+2. On the phone, open Divya Drishti → Settings → Change Wi-Fi network.
+3. Turn on the phone hotspot before starting provisioning.
+4. Enter the target Wi-Fi/hotspot name and password, then tap Connect glasses.
+5. Grant Bluetooth permission; the app scans by the provisioning service UUID,
+   connects, writes credentials, and waits for `connected`.
+6. Keep the hotspot on while the Pi joins it. Confirm on the Pi with
+   `nmcli -t -f NAME,DEVICE connection show --active`.

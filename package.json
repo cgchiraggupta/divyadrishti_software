@@ -12,6 +12,7 @@
     "android:build": "npm run android:sync && cd android && ./gradlew assembleDebug"
   },
   "dependencies": {
+    "@capacitor-community/bluetooth-le": "^8.2.0",
     "@capacitor-community/text-to-speech": "^8.0.2",
     "@capacitor/android": "^8.4.2",
     "@capacitor/core": "^8.4.2",

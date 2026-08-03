@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Volume2, Vibrate, Ruler } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { Volume2, Vibrate, Ruler, Wifi } from 'lucide-react'
 import Layout from '../components/Layout'
 import Card from '../components/Card'
 import Button from '../components/Button'
@@ -150,6 +151,19 @@ export default function Settings() {
             <span className="font-data text-sm text-mist-200 w-10 text-right">{settings.vibration_intensity}%</span>
           </div>
         </Card>
+
+        <Link
+          to="/wifi-setup"
+          onClick={tapFeedback}
+          className="flex items-center justify-between rounded-2xl border border-night-700 bg-night-900 p-5 transition-colors hover:border-night-600"
+        >
+          <span>
+            <span className="block text-xs font-medium uppercase tracking-wider text-mist-500">Connection</span>
+            <span className="mt-1 block font-display text-base font-semibold text-mist-100">Change Wi-Fi network</span>
+            <span className="mt-1 block text-xs text-mist-500">Connect your glasses to home Wi-Fi or your phone hotspot.</span>
+          </span>
+          <Wifi size={20} className="shrink-0 text-signal-400" />
+        </Link>
 
         <div className="flex items-center justify-between pt-2">
           <Button onClick={save} disabled={saving}>
