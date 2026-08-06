@@ -32,3 +32,16 @@ android/app/build
 android/.gradle
 android/local.properties
 ios/App/Pods
+
+# Local agent state and generated workspace artifacts
+.agents/
+skills-lock.json
+tmp/
+.tmp-pdf/
+
+# Hardware-integration local/secret/reference artifacts
+setup/hardware-integration/hostapd.conf
+setup/hardware-integration/dnsmasq-divyadrishti.conf
+setup/hardware-integration/**/__pycache__/
+setup/hardware-integration/divya_drishti_final.RECONSTRUCTED.py
+setup/hardware-integration/recovered-divya_drishti_final.partial.py.txt
