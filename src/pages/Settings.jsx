@@ -6,6 +6,7 @@ import Card from '../components/Card'
 import Button from '../components/Button'
 import { supabase, isDemoMode } from '../lib/supabaseClient'
 import { useDevice } from '../context/DeviceContext'
+import { formatDistanceMeters } from '../lib/format'
 import { signalGuidance, tapFeedback } from '../services/sensoryFeedback'
 
 const FEEDBACK_MODES = [
@@ -70,16 +71,17 @@ export default function Settings() {
         <Card eyebrow="Detection" title="Sensitivity">
           <div className="flex items-center gap-3 mb-2">
             <Ruler size={18} className="text-signal-400" />
-            <span className="font-data text-sm text-mist-200">{settings.sensitivity_mm} mm</span>
+            <span className="font-data text-sm text-mist-200">{formatDistanceMeters(settings.sensitivity_mm)}</span>
           </div>
           <input
             type="range"
-            min="200"
-            max="2000"
-            step="50"
-            value={settings.sensitivity_mm}
-            onChange={(e) => update({ sensitivity_mm: Number(e.target.value) })}
+            min="0.2"
+            max="2"
+            step="0.05"
+            value={settings.sensitivity_mm / 1000}
+            onChange={(event) => update({ sensitivity_mm: Math.round(Number(event.target.value) * 1000) })}
             onPointerUp={tapFeedback}
+            aria-valuetext={formatDistanceMeters(settings.sensitivity_mm)}
             className="w-full accent-signal-500"
           />
           <p className="mt-2 text-xs text-mist-500">Alerts trigger when an obstacle is closer than this distance.</p>

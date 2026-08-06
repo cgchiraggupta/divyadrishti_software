@@ -18,6 +18,15 @@ export function isHazardEvent(eventType) {
   return typeof eventType === 'string' && eventType.startsWith('obstacle') || eventType === 'uneven_ground'
 }
 
+export function formatDistanceMeters(distanceMm) {
+  if (distanceMm == null || !Number.isFinite(Number(distanceMm))) return '—'
+
+  return `${(Number(distanceMm) / 1000).toLocaleString('en-IN', {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 2,
+  })} m`
+}
+
 export function timeAgo(isoString) {
   if (!isoString) return '—'
   const diffMs = Date.now() - new Date(isoString).getTime()

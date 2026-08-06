@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { AlertTriangle, Mic, ShieldCheck, Settings as SettingsIcon } from 'lucide-react'
 import Layout from '../components/Layout'
 import { useDevice } from '../context/DeviceContext'
-import { alertLabel, formatTimestamp, isHazardEvent } from '../lib/format'
+import { alertLabel, formatDistanceMeters, formatTimestamp, isHazardEvent } from '../lib/format'
 import { signalGuidance, tapFeedback } from '../services/sensoryFeedback'
 
 const FILTERS = [
@@ -30,7 +30,7 @@ export default function History() {
   }, [events, filter])
 
   const replayEvent = (event) => {
-    const distance = event.detail?.distance_mm ? ` ${Math.round(event.detail.distance_mm / 10) / 100} metres away.` : ''
+    const distance = event.detail?.distance_mm ? ` ${formatDistanceMeters(event.detail.distance_mm)} away.` : ''
     const message = event.detail?.response ?? event.detail?.message ?? `${alertLabel(event.event_type)}.${distance}`
     signalGuidance({ text: message, isHazard: isHazardEvent(event.event_type) })
   }
@@ -88,7 +88,7 @@ export default function History() {
                 )}
                 {event.detail?.response && <p className="mt-1 text-xs text-mist-400">{event.detail.response}</p>}
                 {event.detail?.object_label && (
-                  <p className="mt-1 text-xs text-mist-400">{event.detail.object_label} {event.detail?.distance_mm ? `· ${Math.round(event.detail.distance_mm / 10) / 100} m away` : ''}</p>
+                  <p className="mt-1 text-xs text-mist-400">{event.detail.object_label} {event.detail?.distance_mm ? `· ${formatDistanceMeters(event.detail.distance_mm)} away` : ''}</p>
                 )}
               </div>
               <span className="font-data text-xs text-mist-500 shrink-0">{formatTimestamp(event.created_at)}</span>
