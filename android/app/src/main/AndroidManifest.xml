@@ -39,6 +39,7 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <!-- BLE Wi-Fi provisioning. Android 12+ splits Bluetooth into runtime
          permissions; neverForLocation lets us scan without location access
          because provisioning does not derive the user's position. -->

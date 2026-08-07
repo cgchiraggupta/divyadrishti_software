@@ -1,4 +1,5 @@
-import { BatteryMedium, Check, ChevronRight, Eye, Footprints, Radio, Sparkles, Volume2, Waves } from 'lucide-react'
+import { useState } from 'react'
+import { BatteryMedium, Check, ChevronRight, Eye, Footprints, LoaderCircle, Pause, Play, Radio, Sparkles, Volume2, Waves } from 'lucide-react'
 import Layout from '../components/Layout'
 import Card from '../components/Card'
 import StatusPulse from '../components/StatusPulse'
@@ -24,14 +25,44 @@ function statusCopy(status) {
 }
 
 export default function Dashboard() {
-  const { device, status, events, loading, nearbyLink, playPreviewScene } = useDevice()
+  const { device, status, events, loading, nearbyLink, playPreviewScene, sendNearbyDeviceCommand } = useDevice()
+  const [sensingControl, setSensingControl] = useState({ pending: null, message: '', error: '' })
   const state = connectionState(device, status)
-  const displayState = nearbyLink.state === 'connected'
+  const sensingPaused = nearbyLink.status?.paused === true
+  const displayState = sensingPaused ? 'paused' : nearbyLink.state === 'connected'
     ? (status?.current_alert && isHazardEvent(status.current_alert) ? 'alert' : 'online')
     : state
   const copy = statusCopy(status)
   const HeroIcon = copy.icon
   const latest = events?.[0]
+  const nearbyControlAvailable = !isDemoMode && nearbyLink.state === 'connected'
+  const commandPending = sensingControl.pending !== null
+
+  const toggleSensing = async () => {
+    if (!nearbyControlAvailable || commandPending) return
+
+    const command = sensingPaused ? 'resume' : 'pause'
+    const expectedPaused = command === 'pause'
+    setSensingControl({ pending: command, message: '', error: '' })
+
+    try {
+      const confirmedStatus = await sendNearbyDeviceCommand(command)
+      if (confirmedStatus?.paused !== expectedPaused) {
+        throw new Error('The glasses did not confirm the requested sensing state.')
+      }
+      setSensingControl({
+        pending: null,
+        message: expectedPaused ? 'Sensing paused on glasses.' : 'Sensing resumed on glasses.',
+        error: '',
+      })
+    } catch {
+      setSensingControl({
+        pending: null,
+        message: '',
+        error: 'Could not reach nearby glasses. Put this phone and the glasses on the same Wi-Fi, then try again.',
+      })
+    }
+  }
 
   if (loading) return <Layout title="Divya Drishti"><p className="text-mist-400 text-sm">Getting your device ready…</p></Layout>
 
@@ -63,6 +94,45 @@ export default function Dashboard() {
             <Volume2 size={16} /> Hear this update
           </button>
         </section>
+
+        {!isDemoMode && (
+          <Card title="Sensing control" eyebrow="Nearby glasses">
+            <div className={`rounded-2xl border p-4 ${sensingPaused ? 'border-alert-500/50 bg-alert-500/10' : 'border-safe-500/30 bg-safe-500/10'}`}>
+              <div className="flex items-start gap-3">
+                <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${sensingPaused ? 'bg-alert-500 text-night-950' : 'bg-safe-500 text-night-950'}`}>
+                  {sensingPaused ? <Pause size={20} strokeWidth={2.5} /> : <Play size={20} strokeWidth={2.5} />}
+                </span>
+                <div>
+                  <p className="text-sm font-semibold text-mist-100">{sensingPaused ? 'Sensing is paused' : 'Sensing is active'}</p>
+                  <p className="mt-1 text-xs leading-5 text-mist-400">
+                    {sensingPaused
+                      ? 'Obstacle alerts are off. Resume before you start walking.'
+                      : 'Pause alerts while you are sitting or talking to someone.'}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={toggleSensing}
+                disabled={!nearbyControlAvailable || commandPending}
+                className={`mt-4 flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold transition active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50 ${sensingPaused ? 'bg-safe-500 text-night-950' : 'bg-signal-500 text-night-950'}`}
+              >
+                {commandPending
+                  ? <><LoaderCircle className="animate-spin" size={17} /> Sending to glasses…</>
+                  : sensingPaused
+                    ? <><Play size={17} /> Resume sensing</>
+                    : <><Pause size={17} /> Pause sensing</>}
+              </button>
+
+              <p className="mt-3 text-xs leading-5 text-mist-500" role={sensingControl.error ? 'alert' : 'status'} aria-live="polite">
+                {sensingControl.error || sensingControl.message || (nearbyControlAvailable
+                  ? 'The glasses confirm each change before this screen updates.'
+                  : 'Connect this phone and the glasses to the same Wi-Fi to use this control.')}
+              </p>
+            </div>
+          </Card>
+        )}
 
         <Card title="Your glasses" eyebrow={nearbyLink.state === 'connected' ? 'Nearby Wi-Fi connection' : 'Connected now'}>
           <div className="grid grid-cols-3 divide-x divide-night-700">

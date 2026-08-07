@@ -7,6 +7,7 @@ import com.getcapacitor.BridgeActivity;
 public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        registerPlugin(LocalDeviceDiscoveryPlugin.class);
         super.onCreate(savedInstanceState);
         // The nearby glasses link is an explicitly paired, same-Wi-Fi HTTP
         // endpoint. Cloud traffic continues to use HTTPS.
