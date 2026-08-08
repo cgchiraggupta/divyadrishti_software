@@ -1,0 +1,31 @@
+[Unit]
+Description=Divya Drishti BLE Wi-Fi provisioning peripheral
+Documentation=file:///usr/local/share/divyadrishti/README.md
+After=bluetooth.service dbus.service
+Wants=bluetooth.service
+
+[Service]
+Type=simple
+# The pairing code gate for credential writes. Override per device via a drop-in
+# rather than editing this unit:
+#   systemctl edit divyadrishti-ble-provisioner.service
+Environment=DIVYADRISHTI_PAIRING_CODE=RA46W4
+Environment=PYTHONUNBUFFERED=1
+# The onboard UART Bluetooth controller can boot RF-killed and DOWN; bring it up
+# before the peripheral tries to register its advertisement. `-` prefixes make
+# these best-effort so a missing tool never blocks start.
+ExecStartPre=-/usr/sbin/rfkill unblock bluetooth
+ExecStartPre=-/usr/bin/hciconfig hci0 up
+ExecStart=/usr/bin/python3 /usr/local/sbin/divyadrishti-ble-provisioner
+# Non-zero exit (registration timeout / ActiveInstances==0) triggers retry.
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=10
+KillMode=mixed
+StandardOutput=journal
+StandardError=journal
+# BlueZ D-Bus access + nmcli network changes require root.
+User=root
+
+[Install]
+WantedBy=multi-user.target

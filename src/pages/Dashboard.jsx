@@ -1,56 +1,270 @@
-import { BatteryMedium, Check, ChevronRight, Eye, Footprints, Radio, Sparkles, Volume2, Waves } from 'lucide-react'
+import { useState } from 'react'
+import { AlertTriangle, BatteryMedium, Check, ChevronRight, Eye, Footprints, LoaderCircle, Pause, Play, Radio, ScanEye, Sparkles, Volume2, Waves } from 'lucide-react'
 import Layout from '../components/Layout'
 import Card from '../components/Card'
 import StatusPulse from '../components/StatusPulse'
 import { useDevice } from '../context/DeviceContext'
 import { previewScenes } from '../lib/demoData'
-import { alertLabel, isHazardEvent, timeAgo } from '../lib/format'
+import { alertLabel, formatDistanceMeters, isHazardEvent, timeAgo } from '../lib/format'
 import { isDemoMode } from '../lib/supabaseClient'
 import { signalGuidance, speakGuidance } from '../services/sensoryFeedback'
 
-function connectionState(device, status) {
-  const lastSeenAt = status?.updated_at ?? device?.last_seen_at
-  if (!lastSeenAt) return 'offline'
-  if (Date.now() - new Date(lastSeenAt).getTime() > 60_000) return 'offline'
-  if (status?.current_alert && isHazardEvent(status.current_alert)) return 'alert'
+function safetyState(status) {
+  const updatedAt = status?.updated_at
+  if (!updatedAt) return 'offline'
+
+  const ageMs = Date.now() - new Date(updatedAt).getTime()
+  if (Number.isNaN(ageMs) || ageMs > 60_000) return 'offline'
+  if (status.mode !== 'tof' || !status.tof_left_ok || !status.tof_right_ok) return 'degraded'
+  if (status.current_alert && isHazardEvent(status.current_alert)) return 'alert'
   return 'online'
 }
 
-function statusCopy(status) {
+function statusCopy(status, state, sensingPaused) {
+  if (sensingPaused) {
+    return {
+      title: 'Sensing is paused',
+      body: 'Obstacle alerts are off. Resume sensing before you start walking.',
+      icon: Pause,
+    }
+  }
+
+  if (state === 'offline') {
+    return {
+      title: 'Safety status is delayed',
+      body: status?.updated_at
+        ? `Last sensor update ${timeAgo(status.updated_at)}. Wear the glasses and check their connection.`
+        : 'Waiting for the first sensor update from your glasses.',
+      icon: AlertTriangle,
+    }
+  }
+
+  if (state === 'degraded') {
+    return {
+      title: 'Obstacle sensing needs attention',
+      body: status?.mode === 'camera_fallback'
+        ? 'Distance sensing is unavailable. Camera guidance can only help when the camera is connected.'
+        : 'The glasses are reporting, but both distance sensors are not ready yet.',
+      icon: AlertTriangle,
+    }
+  }
+
   const type = status?.current_alert ?? 'path_clear'
-  if (type === 'path_clear') return { title: 'Path ahead is clear', body: 'Your glasses are watching for obstacles.', icon: Check }
-  if (type === 'uneven_ground') return { title: 'Uneven ground ahead', body: 'Take care with your next step.', icon: Footprints }
-  return { title: alertLabel(type), body: 'Your glasses have shared an update.', icon: Eye }
+  if (type === 'path_clear') {
+    return {
+      title: 'Path ahead is clear',
+      body: 'Your glasses are watching for obstacles.',
+      speak_hi: 'रास्ता साफ़ है। चश्मा बाधाओं पर नज़र रख रहा है।',
+      icon: Check,
+    }
+  }
+  if (type === 'uneven_ground') {
+    return {
+      title: 'Uneven ground ahead',
+      body: 'Take care with your next step.',
+      speak_hi: 'आगे जमीन ऊबड़-खाबड़ है। सावधानी से कदम बढ़ाएँ।',
+      icon: Footprints,
+    }
+  }
+  return {
+    title: alertLabel(type),
+    body: 'Your glasses have shared an update.',
+    speak_hi: `${alertLabel(type)}। आपके चश्मे ने अपडेट भेजा है।`,
+    icon: Eye,
+  }
+}
+
+function connectionSubtitle(nearbyLink, state, sensingPaused) {
+  if (sensingPaused) return 'Sensing paused on nearby glasses'
+  if (nearbyLink.state === 'connected' && state === 'online') return 'Nearby Wi-Fi link · safety status is live'
+  if (isDemoMode) return 'Preview mode — try the guidance buttons below'
+  if (state === 'offline') return 'Showing last known information, not live sensing'
+  if (state === 'degraded') return 'Glasses are reporting, but safety coverage is incomplete'
+  return 'Safety sensing is live via the glasses Wi-Fi connection'
+}
+
+function capabilityRow(label, value, detail, tone = 'neutral') {
+  const toneClass = {
+    safe: 'text-safe-400',
+    alert: 'text-alert-400',
+    signal: 'text-signal-400',
+    neutral: 'text-mist-300',
+  }[tone]
+
+  return (
+    <div className="flex items-start justify-between gap-4 border-b border-night-800 py-3 last:border-0">
+      <div>
+        <p className="text-sm font-medium text-mist-200">{label}</p>
+        <p className="mt-0.5 text-xs leading-5 text-mist-500">{detail}</p>
+      </div>
+      <span className={`shrink-0 text-sm font-semibold ${toneClass}`}>{value}</span>
+    </div>
+  )
 }
 
 export default function Dashboard() {
-  const { device, status, events, loading, nearbyLink, playPreviewScene } = useDevice()
-  const state = connectionState(device, status)
-  const displayState = nearbyLink.state === 'connected'
-    ? (status?.current_alert && isHazardEvent(status.current_alert) ? 'alert' : 'online')
-    : state
-  const copy = statusCopy(status)
+  const { status, events, loading, nearbyLink, playPreviewScene, sendNearbyDeviceCommand, describeNearbySurroundings, obstacleHistory } = useDevice()
+  const [sensingControl, setSensingControl] = useState({ pending: null, message: '', error: '' })
+  const [describeControl, setDescribeControl] = useState({
+    pending: false,
+    textHi: '',
+    imageJpegB64: '',
+    message: '',
+    error: '',
+  })
+  const state = safetyState(status)
+  const sensingPaused = nearbyLink.status?.paused === true
+  const displayState = sensingPaused ? 'paused' : state
+  const copy = statusCopy(status, state, sensingPaused)
   const HeroIcon = copy.icon
-  const latest = events?.[0]
+  const liveAlert = nearbyLink.status?.phone_alert
+  // Prefer phone-local obstacle/read history (has photos). Fall back to live
+  // nearby alert, then cloud events (text-only, often without a snapshot).
+  const latestObstacle = (obstacleHistory || []).find((row) =>
+    row?.event_type !== 'voice_command'
+    && row?.source !== 'describe'
+    && row?.source !== 'read',
+  ) || null
+  const latest = latestObstacle || obstacleHistory?.[0] || (liveAlert ? {
+    speak_hi: liveAlert.speak_hi || liveAlert.text_hi,
+    created_at: liveAlert.created_at,
+    event_type: liveAlert.event_type || 'obstacle_ahead',
+    image_jpeg_b64: liveAlert.image_jpeg_b64,
+    distance_mm: liveAlert.distance_mm,
+    direction: liveAlert.direction,
+  } : null) || events?.[0]
+  const latestDistanceMm = latest?.distance_mm ?? latest?.detail?.distance_mm
+  const sensingLive = !sensingPaused && (state === 'online' || state === 'alert')
+  const battery = status?.battery_pct == null ? 'Not reported' : `${Math.round(status.battery_pct)}%`
+  const nearbyControlAvailable = !isDemoMode && nearbyLink.state === 'connected'
+  const commandPending = sensingControl.pending !== null
+  const describePending = describeControl.pending
+
+  const toggleSensing = async () => {
+    if (!nearbyControlAvailable || commandPending) return
+
+    const command = sensingPaused ? 'resume' : 'pause'
+    const expectedPaused = command === 'pause'
+    setSensingControl({ pending: command, message: '', error: '' })
+
+    try {
+      const confirmedStatus = await sendNearbyDeviceCommand(command)
+      if (confirmedStatus?.paused !== expectedPaused) {
+        throw new Error('The glasses did not confirm the requested sensing state.')
+      }
+      setSensingControl({
+        pending: null,
+        message: expectedPaused ? 'Sensing paused on glasses.' : 'Sensing resumed on glasses.',
+        error: '',
+      })
+    } catch {
+      setSensingControl({
+        pending: null,
+        message: '',
+        error: 'Could not reach nearby glasses. Put this phone and the glasses on the same Wi-Fi, then try again.',
+      })
+    }
+  }
+
+  const runDescribe = async () => {
+    if (describePending) return
+
+    setDescribeControl({
+      pending: true,
+      textHi: '',
+      imageJpegB64: '',
+      message: '',
+      error: '',
+    })
+
+    try {
+      if (isDemoMode) {
+        const textHi = 'Mock read: wall par EXIT likha hai, neeche Gate 2 dikh raha hai.'
+        await speakGuidance(textHi)
+        setDescribeControl({
+          pending: false,
+          textHi,
+          imageJpegB64: '',
+          message: 'Demo read ready.',
+          error: '',
+        })
+        return
+      }
+
+      const result = await describeNearbySurroundings()
+      if (result?.status === 'cooldown') {
+        const wait = result.retry_after_seconds ?? 8
+        setDescribeControl({
+          pending: false,
+          textHi: '',
+          imageJpegB64: '',
+          message: '',
+          error: `Thoda wait karein — ${wait} seconds mein phir try karein.`,
+        })
+        return
+      }
+
+      const geminiError = String(result?.error || '')
+      if (result?.status === 'error' && (/429|quota|billing/i.test(geminiError) || !result?.text_hi?.trim())) {
+        setDescribeControl({
+          pending: false,
+          textHi: '',
+          imageJpegB64: result?.image_jpeg_b64 || '',
+          message: '',
+          error: /429|quota|billing/i.test(geminiError)
+            ? 'Read failed: Gemini API quota exceeded. Add billing / wait for quota reset, then try again.'
+            : (geminiError || 'Read failed on the glasses.'),
+        })
+        return
+      }
+
+      const textHi = result?.text_hi?.trim() || ''
+      if (!textHi) throw new Error(result?.error || 'No read text returned.')
+
+      await speakGuidance(textHi)
+      try {
+        await sendNearbyDeviceCommand('unmute_haptics')
+      } catch {
+        // unmute is best-effort; Pi also auto-unmutes after 20s
+      }
+      setDescribeControl({
+        pending: false,
+        textHi,
+        imageJpegB64: result?.image_jpeg_b64 || '',
+        message: result?.status === 'ok' ? 'Read ready — spoken on this phone.' : 'Read finished with a fallback message.',
+        error: '',
+      })
+    } catch (error) {
+      setDescribeControl({
+        pending: false,
+        textHi: '',
+        imageJpegB64: '',
+        message: '',
+        error: error?.message?.includes('Glasses') || error?.message?.includes('reach')
+          ? 'Could not reach glasses. Same Wi-Fi chahiye phone aur glasses ka.'
+          : 'Abhi read nahi ho paya. Thodi der baad phir try karein.',
+      })
+    }
+  }
 
   if (loading) return <Layout title="Divya Drishti"><p className="text-mist-400 text-sm">Getting your device ready…</p></Layout>
 
   return (
     <Layout
       title="Divya Drishti"
-      subtitle={nearbyLink.state === 'connected' ? 'Your glasses are nearby on Wi-Fi' : state === 'offline' ? 'Your glasses are not reachable right now' : 'Your companion is connected'}
+      subtitle={connectionSubtitle(nearbyLink, state, sensingPaused)}
       action={<StatusPulse state={displayState} />}
     >
       <div className="space-y-4">
         {isDemoMode && (
           <div className="inline-flex items-center gap-1.5 rounded-full bg-night-800 px-3 py-1 text-xs font-medium text-mist-300">
-            <Sparkles size={13} className="text-signal-400" /> Preview experience
+            <Sparkles size={13} className="text-signal-400" /> Preview experience · Indian voice
           </div>
         )}
 
-        <section className={`overflow-hidden rounded-3xl border p-5 ${displayState === 'alert' ? 'border-signal-500/50 bg-signal-500/10' : 'border-safe-500/30 bg-safe-500/10'}`}>
+        <section className={`overflow-hidden rounded-3xl border p-5 ${displayState === 'alert' ? 'border-signal-500/50 bg-signal-500/10' : displayState === 'online' ? 'border-safe-500/30 bg-safe-500/10' : 'border-alert-500/40 bg-alert-500/10'}`}>
           <div className="flex items-start gap-4">
-            <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${displayState === 'alert' ? 'bg-signal-500 text-night-950' : 'bg-safe-500 text-night-950'}`}>
+            <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${displayState === 'alert' ? 'bg-signal-500 text-night-950' : displayState === 'online' ? 'bg-safe-500 text-night-950' : 'bg-alert-500 text-night-950'}`}>
               <HeroIcon size={24} strokeWidth={2.5} />
             </span>
             <div className="min-w-0 flex-1">
@@ -59,29 +273,164 @@ export default function Dashboard() {
               <p className="mt-1 text-sm leading-6 text-mist-300">{copy.body}</p>
             </div>
           </div>
-          <button onClick={() => speakGuidance(`${copy.title}. ${copy.body}`)} className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-signal-300">
+          {(state === 'online' || state === 'alert') && <button onClick={() => speakGuidance(copy.speak_hi || `${copy.title}. ${copy.body}`)} className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-signal-300">
             <Volume2 size={16} /> Hear this update
-          </button>
+          </button>}
         </section>
 
-        <Card title="Your glasses" eyebrow={nearbyLink.state === 'connected' ? 'Nearby Wi-Fi connection' : 'Connected now'}>
+        {!isDemoMode && (
+          <Card title="Sensing control" eyebrow="Nearby glasses">
+            <div className={`rounded-2xl border p-4 ${sensingPaused ? 'border-alert-500/50 bg-alert-500/10' : 'border-safe-500/30 bg-safe-500/10'}`}>
+              <div className="flex items-start gap-3">
+                <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${sensingPaused ? 'bg-alert-500 text-night-950' : 'bg-safe-500 text-night-950'}`}>
+                  {sensingPaused ? <Pause size={20} strokeWidth={2.5} /> : <Play size={20} strokeWidth={2.5} />}
+                </span>
+                <div>
+                  <p className="text-sm font-semibold text-mist-100">{sensingPaused ? 'Sensing is paused' : 'Sensing is active'}</p>
+                  <p className="mt-1 text-xs leading-5 text-mist-400">
+                    {sensingPaused
+                      ? 'Obstacle alerts are off. Resume before you start walking.'
+                      : 'Pause alerts while you are sitting or talking to someone.'}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={toggleSensing}
+                disabled={!nearbyControlAvailable || commandPending}
+                className={`mt-4 flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold transition active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50 ${sensingPaused ? 'bg-safe-500 text-night-950' : 'bg-signal-500 text-night-950'}`}
+              >
+                {commandPending
+                  ? <><LoaderCircle className="animate-spin" size={17} /> Sending to glasses…</>
+                  : sensingPaused
+                    ? <><Play size={17} /> Resume sensing</>
+                    : <><Pause size={17} /> Pause sensing</>}
+              </button>
+
+              <p className="mt-3 text-xs leading-5 text-mist-500" role={sensingControl.error ? 'alert' : 'status'} aria-live="polite">
+                {sensingControl.error || sensingControl.message || (nearbyControlAvailable
+                  ? 'The glasses confirm each change before this screen updates.'
+                  : 'Connect this phone and the glasses to the same Wi-Fi to use this control.')}
+              </p>
+            </div>
+          </Card>
+        )}
+
+        <Card title="Read what’s in front" eyebrow="Camera · text / signs · phone speaker">
+          <p className="text-sm leading-6 text-mist-400">
+            Tap to capture one photo and read clear text or signs in Hinglish on this phone. Obstacle alerts stay separate — they only talk about nearby things in your sensitivity range.
+          </p>
+          <button
+            type="button"
+            onClick={runDescribe}
+            disabled={describePending}
+            className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-signal-500 px-4 py-3 text-sm font-bold text-night-950 transition active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {describePending
+              ? <><LoaderCircle className="animate-spin" size={17} /> Reading…</>
+              : <><ScanEye size={17} /> Read</>}
+          </button>
+          <p className="mt-3 text-xs leading-5 text-mist-500" role={describeControl.error ? 'alert' : 'status'} aria-live="polite">
+            {describeControl.error
+              || describeControl.message
+              || (isDemoMode
+                ? 'Preview mode will speak a sample read result on this phone.'
+                : 'Tap to read — phone and glasses must be on the same Wi-Fi.')}
+          </p>
+          {describeControl.textHi && (
+            <div className="mt-4 rounded-2xl border border-night-700 bg-night-900/60 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-mist-500">Read result</p>
+              <p className="mt-2 text-sm leading-6 text-mist-100">{describeControl.textHi}</p>
+              <button
+                type="button"
+                onClick={() => speakGuidance(describeControl.textHi)}
+                className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-signal-300"
+              >
+                <Volume2 size={16} /> Hear again
+              </button>
+            </div>
+          )}
+          {describeControl.imageJpegB64 && (
+            <img
+              alt="Latest capture from the glasses camera"
+              src={`data:image/jpeg;base64,${describeControl.imageJpegB64}`}
+              className="mt-4 w-full rounded-2xl border border-night-700 object-cover"
+            />
+          )}
+        </Card>
+
+        <Card title="Safety layers" eyebrow={sensingLive ? `Obstacle sensing · updated ${timeAgo(status?.updated_at)}` : 'Current capability status'}>
+          {capabilityRow(
+            'Obstacle sensing',
+            sensingLive ? 'Live' : state === 'offline' ? 'Delayed' : 'Needs attention',
+            sensingLive ? 'Dual distance sensors are reporting obstacle guidance.' : 'This status needs a fresh update before it can be trusted.',
+            sensingLive ? 'safe' : 'alert'
+          )}
+          {capabilityRow(
+            'Camera and text reading',
+            status?.camera_ok ? 'Available' : 'Unavailable',
+            status?.camera_ok ? 'Camera awareness and text reading can provide extra context.' : 'Obstacle sensing can continue without the camera.',
+            status?.camera_ok ? 'safe' : 'neutral'
+          )}
+          {capabilityRow(
+            'Audio and haptics',
+            'Status unavailable',
+            'The glasses do not yet report output self-check results to the app.',
+            'neutral'
+          )}
+        </Card>
+
+        <Card title="Your glasses" eyebrow={nearbyLink.state === 'connected' ? 'Nearby Wi-Fi connection' : isDemoMode ? 'Preview connection' : 'Cloud link'}>
+          {nearbyLink.state !== 'connected' && !isDemoMode && (
+            <p className="mb-3 rounded-xl border border-alert-500/40 bg-alert-500/10 px-3 py-2 text-xs leading-5 text-alert-300" role="status">
+              Phone is not linked to glasses on Wi-Fi right now — photos cannot arrive. Keep both on the same Wi-Fi (glasses are at 192.168.1.39), reopen the app, then stand in front again.
+            </p>
+          )}
           <div className="grid grid-cols-3 divide-x divide-night-700">
-            <div className="pr-3"><BatteryMedium size={19} className="mb-2 text-signal-400" /><p className="font-data text-lg text-mist-100">{Math.round(status?.battery_pct ?? 0)}%</p><p className="mt-0.5 text-xs text-mist-500">Battery</p></div>
-            <div className="px-3"><Radio size={19} className="mb-2 text-safe-400" /><p className="text-lg font-semibold text-mist-100">{nearbyLink.state === 'connected' ? 'Nearby' : state === 'offline' ? 'Away' : 'Ready'}</p><p className="mt-0.5 text-xs text-mist-500">Connection</p></div>
-            <div className="pl-3"><Eye size={19} className="mb-2 text-signal-400" /><p className="text-lg font-semibold text-mist-100">{status?.mode === 'camera_fallback' ? 'Camera' : 'Sensing'}</p><p className="mt-0.5 text-xs text-mist-500">Guidance</p></div>
+            <div className="pr-3"><BatteryMedium size={19} className="mb-2 text-signal-400" /><p className="font-data text-sm text-mist-100">{battery}</p><p className="mt-0.5 text-xs text-mist-500">Battery</p></div>
+            <div className="px-3"><Radio size={19} className="mb-2 text-safe-400" /><p className="text-lg font-semibold text-mist-100">{nearbyLink.state === 'connected' ? 'Nearby' : state === 'offline' ? 'Delayed' : sensingLive ? 'Live' : 'Check'}</p><p className="mt-0.5 text-xs text-mist-500">Safety link</p></div>
+            <div className="pl-3"><Eye size={19} className="mb-2 text-signal-400" /><p className="text-lg font-semibold text-mist-100">{sensingLive ? 'ToF' : status?.mode === 'camera_fallback' ? 'Camera' : 'Waiting'}</p><p className="mt-0.5 text-xs text-mist-500">Guidance</p></div>
           </div>
         </Card>
 
         <Card title="Latest update" eyebrow="Recent activity" action={<ChevronRight size={18} className="text-mist-500" />}>
-          <p className="text-sm font-medium text-mist-200">{latest ? alertLabel(latest.event_type) : 'No recent updates'}</p>
-          <p className="mt-1 text-sm text-mist-500">{latest ? `${timeAgo(latest.created_at)} · Your activity is safely saved here.` : 'Updates from your glasses will appear here.'}</p>
+          {!nearbyControlAvailable && !isDemoMode && (
+            <p className="mb-3 rounded-xl border border-alert-500/40 bg-alert-500/10 px-3 py-2 text-xs leading-5 text-alert-300" role="status">
+              Glasses buzz can still work offline, but photos only reach this phone on the same Wi‑Fi. Reconnect nearby to fill Recent activity.
+            </p>
+          )}
+          <p className="text-sm font-medium text-mist-200">
+            {latest
+              ? (latest.speak_hi || latest.detail?.speak_hi || alertLabel(latest.event_type))
+              : 'No recent obstacle yet'}
+          </p>
+          <p className="mt-1 text-sm text-mist-500">
+            {latest
+              ? [
+                  timeAgo(latest.created_at),
+                  latestDistanceMm != null ? formatDistanceMeters(latestDistanceMm) : null,
+                  latest.direction || latest.detail?.direction || null,
+                  'History → Obstacles',
+                ].filter(Boolean).join(' · ')
+              : nearbyControlAvailable
+                ? 'When ToF buzzes within your Settings range, the photo and short label land here.'
+                : 'Connect nearby Wi‑Fi, then walk toward something inside your Settings range.'}
+          </p>
+          {(latest?.image_jpeg_b64 || latest?.detail?.image_jpeg_b64) && (
+            <img
+              alt="Obstacle snapshot from glasses camera"
+              src={`data:image/jpeg;base64,${latest.image_jpeg_b64 || latest.detail.image_jpeg_b64}`}
+              className="mt-4 w-full rounded-2xl border border-night-700 object-cover"
+            />
+          )}
         </Card>
 
         {isDemoMode && (
           <Card title="Feel the guidance" eyebrow="Live preview">
-            <p className="mb-4 text-sm leading-6 text-mist-400">Every preview speaks an alert and vibrates your phone, like the glasses will do in use.</p>
+            <p className="mb-4 text-sm leading-6 text-mist-400">Every preview speaks in an Indian voice and vibrates your phone, like the glasses will do in use.</p>
             <button
-              onClick={() => signalGuidance({ text: 'Obstacle ahead. Chair, about 60 centimetres away.', isHazard: true })}
+              onClick={() => signalGuidance({ text: 'सामने कुर्सी है। लगभग 60 सेंटीमीटर दूर।', isHazard: true })}
               className="mb-3 flex w-full items-center justify-center gap-2 rounded-xl bg-signal-500 px-4 py-3 text-sm font-bold text-night-950 active:scale-[0.99]"
             >
               <Waves size={17} /> Test obstacle alert

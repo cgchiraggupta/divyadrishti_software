@@ -1,71 +1,21 @@
--- Divya Drishti companion app — Supabase schema
--- Run this in the Supabase SQL editor for a fresh project.
+-- Cloud-to-glasses settings protocol for the private prototype.
+--
+-- The companion submits one full settings snapshot. The Pi atomically claims
+-- it, validates and persists it locally, then acknowledges that exact request.
+-- device_settings represents only values confirmed by the Pi.
 
--- ─────────────────────────────────────────────────────────────
--- devices: one row per physical glasses unit, linked to an owner
--- ─────────────────────────────────────────────────────────────
-create table if not exists devices (
+alter table public.device_settings
+  alter column sensitivity_mm set default 2000;
+
+alter table public.device_settings
+  add column if not exists revision bigint not null default 0,
+  add column if not exists applied_at timestamptz,
+  add column if not exists last_request_id uuid,
+  add column if not exists pi_version text;
+
+create table if not exists public.device_setting_requests (
   id uuid primary key default gen_random_uuid(),
-  -- Reserved for a future optional account/owner model.
-  owner_id text,
-  name text not null default 'Divya Drishti',
-  pairing_code text unique, -- short code shown/printed on the Pi during setup
-  paired_at timestamptz,
-  last_seen_at timestamptz,
-  created_at timestamptz not null default now()
-);
-
--- ─────────────────────────────────────────────────────────────
--- device_status: latest known state, one row per device (upserted)
--- ─────────────────────────────────────────────────────────────
-create table if not exists device_status (
-  device_id uuid primary key references devices(id) on delete cascade,
-  battery_pct numeric,
-  tof_left_ok boolean,
-  tof_right_ok boolean,
-  camera_ok boolean,
-  mic_ok boolean,
-  mode text check (mode in ('tof', 'camera_fallback', 'unknown')) default 'unknown',
-  current_alert text, -- e.g. 'path_clear', 'obstacle_ahead', 'obstacle_left', ...
-  updated_at timestamptz not null default now()
-);
-
--- ─────────────────────────────────────────────────────────────
--- device_events: append-only log of alerts, voice commands, etc.
--- ─────────────────────────────────────────────────────────────
-create table if not exists device_events (
-  id bigint generated always as identity primary key,
-  device_id uuid not null references devices(id) on delete cascade,
-  event_type text not null, -- 'obstacle_ahead' | 'obstacle_left' | 'obstacle_right'
-                             -- | 'uneven_ground' | 'voice_command' | 'sos' | 'system'
-  detail jsonb,
-  created_at timestamptz not null default now()
-);
-
-create index if not exists device_events_device_id_created_at_idx
-  on device_events (device_id, created_at desc);
-
--- ─────────────────────────────────────────────────────────────
--- device_settings: user-configurable behaviour, one row per device
--- ─────────────────────────────────────────────────────────────
-create table if not exists device_settings (
-  device_id uuid primary key references devices(id) on delete cascade,
-  sensitivity_mm integer not null default 2000,
-  feedback_mode text check (feedback_mode in ('audio', 'vibration', 'both')) default 'both',
-  volume integer not null default 70 check (volume between 0 and 100),
-  vibration_intensity integer not null default 70 check (vibration_intensity between 0 and 100),
-  revision bigint not null default 0,
-  applied_at timestamptz,
-  last_request_id uuid,
-  pi_version text,
-  updated_at timestamptz not null default now()
-);
-
--- Queued full snapshots submitted by the companion app. The Pi claims and
--- acknowledges them; see the settings acknowledgement migration for RPCs.
-create table if not exists device_setting_requests (
-  id uuid primary key default gen_random_uuid(),
-  device_id uuid not null references devices(id) on delete cascade,
+  device_id uuid not null references public.devices(id) on delete cascade,
   client_request_id uuid not null unique,
   base_revision bigint not null default 0,
   sensitivity_mm integer not null check (sensitivity_mm between 1000 and 2500),
@@ -84,62 +34,36 @@ create table if not exists device_setting_requests (
   error_message text
 );
 
+-- Covers projects created from the earlier schema snapshot too.
+alter table public.device_setting_requests
+  add column if not exists claimed_at timestamptz,
+  add column if not exists lease_expires_at timestamptz,
+  add column if not exists completed_at timestamptz;
+
 create index if not exists device_setting_requests_pending_idx
-  on device_setting_requests (device_id, requested_at)
+  on public.device_setting_requests (device_id, requested_at)
   where state = 'queued';
 
+-- One Pi process may own a live request at a time. An expired lease can be
+-- claimed again after a crash, using the same request ID.
 create unique index if not exists device_setting_requests_one_applying_per_device_idx
-  on device_setting_requests (device_id)
+  on public.device_setting_requests (device_id)
   where state = 'applying';
 
--- ─────────────────────────────────────────────────────────────
--- Row Level Security — pairing-first public companion app.
--- The app does not require an account. The pairing code is the device access key.
--- ─────────────────────────────────────────────────────────────
-alter table devices enable row level security;
-alter table device_status enable row level security;
-alter table device_events enable row level security;
-alter table device_settings enable row level security;
-alter table device_setting_requests enable row level security;
+alter table public.device_setting_requests enable row level security;
 
-create policy "Anyone can find glasses by pairing code" on devices for select to anon, authenticated using (true);
-create policy "Anyone can read paired device status" on device_status for select to anon, authenticated using (true);
-create policy "Anyone can read paired device events" on device_events for select to anon, authenticated using (true);
-create policy "Anyone can add device events" on device_events for insert to anon, authenticated with check (true);
-create policy "Anyone can read device settings" on device_settings for select to anon, authenticated using (true);
-create policy "Anyone can read prototype setting requests" on device_setting_requests for select to anon, authenticated using (true);
+-- Pairing-only prototype policy. This is not public-release authorization;
+-- device ownership/authentication must replace it before public launch.
+drop policy if exists "Anyone can read prototype setting requests"
+  on public.device_setting_requests;
+create policy "Anyone can read prototype setting requests"
+  on public.device_setting_requests for select to anon, authenticated using (true);
 
-create or replace function public.claim_device_public(pairing_code_input text)
-returns public.devices
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  claimed public.devices;
-begin
-  select * into claimed from public.devices
-  where pairing_code = upper(trim(pairing_code_input));
+-- Settings cannot be written directly. The app requests and observes; the Pi
+-- alone confirms a hardware-applied snapshot through the two service RPCs.
+drop policy if exists "Anyone can add device settings" on public.device_settings;
+drop policy if exists "Anyone can update device settings" on public.device_settings;
 
-  if not found then
-    raise exception 'Pairing code is invalid' using errcode = 'P0002';
-  end if;
-
-  update public.devices set paired_at = coalesce(paired_at, now())
-  where id = claimed.id returning * into claimed;
-
-  return claimed;
-end;
-$$;
-
-revoke all on function public.claim_device_public(text) from public;
-grant execute on function public.claim_device_public(text) to anon, authenticated;
-
--- ─────────────────────────────────────────────────────────────
--- Confirmed settings protocol
--- The companion submits a full snapshot. The Pi claims, validates, persists
--- locally, then acknowledges it. device_settings contains only confirmed values.
--- ─────────────────────────────────────────────────────────────
 create or replace function public.request_device_settings(
   pairing_code_input text,
   client_request_id_input uuid,
@@ -176,6 +100,8 @@ begin
     raise exception 'Vibration intensity must be between 40 and 100' using errcode = '22023';
   end if;
 
+  -- Serialize all requests for the same glasses before inspecting revision or
+  -- superseding a queued snapshot.
   select * into target_device
   from public.devices
   where pairing_code = upper(trim(pairing_code_input))
@@ -206,6 +132,8 @@ begin
     raise exception 'Settings changed on the glasses. Refresh and try again.' using errcode = '40001';
   end if;
 
+  -- A newer save replaces only work the Pi has not started. An applying
+  -- request remains leased and cannot be silently overwritten.
   update public.device_setting_requests
   set state = 'superseded', completed_at = now(),
       error_code = 'superseded', error_message = 'Replaced by a newer settings request.'
@@ -246,6 +174,7 @@ declare
   candidate public.device_setting_requests;
   current_revision bigint := 0;
 begin
+  -- Take locks in the same order as request/ack to avoid races and deadlocks.
   select * into target_device from public.devices where id = device_id_input for update;
   if not found then
     raise exception 'Device was not found' using errcode = 'P0002';
@@ -256,6 +185,7 @@ begin
   where device_id = target_device.id;
   current_revision := coalesce(current_revision, 0);
 
+  -- A request based on an older confirmed state must never reach hardware.
   update public.device_setting_requests
   set state = 'rejected', completed_at = now(),
       error_code = 'revision_conflict',
@@ -264,6 +194,8 @@ begin
     and state = 'queued'
     and base_revision <> current_revision;
 
+  -- Reclaim an expired lease first. The Pi persists the request ID before it
+  -- changes runtime state, so replaying this same snapshot is idempotent.
   select * into candidate
   from public.device_setting_requests
   where device_id = target_device.id
@@ -421,9 +353,6 @@ grant execute on function public.claim_next_device_setting_request(uuid) to serv
 revoke all on function public.ack_device_setting_request(uuid, boolean, text, text, text) from public;
 grant execute on function public.ack_device_setting_request(uuid, boolean, text, text, text) to service_role;
 
--- Enable Realtime on the tables the dashboard subscribes to.
-alter publication supabase_realtime add table device_status;
-alter publication supabase_realtime add table device_events;
 do $$
 begin
   alter publication supabase_realtime add table public.device_setting_requests;

@@ -33,6 +33,7 @@ def connect_to_wifi(ssid: str, password: str) -> None:
         subprocess.run(("pkill", "-TERM", "-f", f"/usr/sbin/hostapd {HOSTAPD_CONFIG}"), check=False)
         subprocess.run(("systemctl", "stop", "dnsmasq"), check=False)
         subprocess.run(("ip", "addr", "flush", "dev", "wlan0"), check=False)
+        run("nmcli", "device", "set", "wlan0", "managed", "yes")
         run("nmcli", "connection", "up", profile)
     finally:
         # This service is a child of the setup fallback. Exit after an attempt

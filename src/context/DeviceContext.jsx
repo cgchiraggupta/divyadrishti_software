@@ -1,11 +1,13 @@
-import { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { supabase, isDemoMode } from '../lib/supabaseClient'
-import { createDemoEvent, demoDevice, demoEvents, demoStatus } from '../lib/demoData'
-import { signalGuidance } from '../services/sensoryFeedback'
-import { getNearbyDeviceStatus, sendNearbyCommand } from '../services/localDeviceLink'
+import { createDemoEvent, demoDevice, demoEvents, demoStatus, sceneSpeakText } from '../lib/demoData'
+import { signalGuidance, speakGuidance } from '../services/sensoryFeedback'
+import { getNearbyDeviceStatus, sendNearbyCommand, sendNearbyDescribe, clearNearbyDeviceUrlCache } from '../services/localDeviceLink'
+import { loadObstacleHistory, saveObstacleHistoryItem } from '../services/obstacleHistory'
 
 const DeviceContext = createContext(undefined)
 const PAIRING_CODE_KEY = 'divya-drishti-pairing-code'
+const LAST_PHONE_ALERT_KEY = 'divyadrishti-last-phone-alert-id'
 
 export function DeviceProvider({ children }) {
   const [device, setDevice] = useState(null)
@@ -13,12 +15,18 @@ export function DeviceProvider({ children }) {
   const [events, setEvents] = useState([])
   const [loading, setLoading] = useState(true)
   const [nearbyLink, setNearbyLink] = useState({ state: 'idle', status: null })
+  const [dataError, setDataError] = useState(null)
+  const [lastRefreshedAt, setLastRefreshedAt] = useState(null)
+  const [obstacleHistory, setObstacleHistory] = useState(() => loadObstacleHistory())
+  const speakingAlertRef = useRef(false)
 
-  const loadDevice = useCallback(async () => {
+  const loadDevice = useCallback(async ({ background = false } = {}) => {
     if (isDemoMode) {
       setDevice(demoDevice)
       setStatus(demoStatus)
       setEvents(demoEvents)
+      setDataError(null)
+      setLastRefreshedAt(new Date().toISOString())
       setLoading(false)
       return
     }
@@ -28,22 +36,32 @@ export function DeviceProvider({ children }) {
       setDevice(null)
       setStatus(null)
       setEvents([])
+      setDataError(null)
       setLoading(false)
       return
     }
-    setLoading(true)
+    // Never flip global loading on background polls — that remounts pages
+    // (History tabs reset to Obstacles, full-screen flicker every ~15s).
+    if (!background) setLoading(true)
 
-    const { data: devices } = await supabase
-      .from('devices')
-      .select('*')
-      .eq('pairing_code', pairingCode)
-      .maybeSingle()
+    try {
+      const { data: activeDevice, error: deviceError } = await supabase
+        .from('devices')
+        .select('*')
+        .eq('pairing_code', pairingCode)
+        .maybeSingle()
 
-    const activeDevice = devices ?? null
-    setDevice(activeDevice)
+      if (deviceError) throw deviceError
+      setDevice(activeDevice ?? null)
 
-    if (activeDevice) {
-      const [{ data: statusRow }, { data: eventRows }] = await Promise.all([
+      if (!activeDevice) {
+        setStatus(null)
+        setEvents([])
+        setDataError('This paired device could not be found. Pair it again to reconnect.')
+        return
+      }
+
+      const [{ data: statusRow, error: statusError }, { data: eventRows, error: eventsError }] = await Promise.all([
         supabase.from('device_status').select('*').eq('device_id', activeDevice.id).maybeSingle(),
         supabase
           .from('device_events')
@@ -52,16 +70,30 @@ export function DeviceProvider({ children }) {
           .order('created_at', { ascending: false })
           .limit(50),
       ])
+      if (statusError) throw statusError
+      if (eventsError) throw eventsError
+
       setStatus(statusRow ?? null)
       setEvents(eventRows ?? [])
+      setDataError(null)
+      setLastRefreshedAt(new Date().toISOString())
+    } catch {
+      setDataError('The app could not refresh device information. Showing the last known status.')
+    } finally {
+      if (!background) setLoading(false)
     }
-
-    setLoading(false)
   }, [])
 
   useEffect(() => {
     loadDevice()
   }, [loadDevice])
+
+  // Re-check the source of truth even if a Realtime subscription drops.
+  useEffect(() => {
+    if (isDemoMode || !device) return undefined
+    const interval = window.setInterval(() => loadDevice({ background: true }), 15_000)
+    return () => window.clearInterval(interval)
+  }, [device, loadDevice])
 
   const playPreviewScene = useCallback((scene) => {
     if (!isDemoMode) return
@@ -75,7 +107,7 @@ export function DeviceProvider({ children }) {
     }))
     setEvents((current) => [event, ...current].slice(0, 200))
     signalGuidance({
-      text: `${scene.title}. ${scene.message}`,
+      text: sceneSpeakText(scene),
       isHazard: scene.event_type !== 'path_clear',
     })
   }, [])
@@ -105,6 +137,7 @@ export function DeviceProvider({ children }) {
 
   // Prefer a nearby Wi-Fi link for immediate connection feedback. Cloud
   // Realtime remains the history and away-from-home fallback.
+  // Poll often enough to pick up Gemini phone_alert payloads after obstacles.
   useEffect(() => {
     const nearbyPairingCode = isDemoMode
       ? import.meta.env.VITE_LOCAL_PAIRING_CODE
@@ -116,16 +149,71 @@ export function DeviceProvider({ children }) {
     }
 
     let active = true
+    const handlePhoneAlert = async (alert) => {
+      if (!alert?.alert_id) return
+      const processedKey = 'divyadrishti-processed-alert-ids'
+      let processed = []
+      try {
+        processed = JSON.parse(window.localStorage.getItem(processedKey) || '[]')
+      } catch {
+        processed = []
+      }
+      if (!Array.isArray(processed)) processed = []
+      if (processed.includes(Number(alert.alert_id))) return
+      processed = [...processed, Number(alert.alert_id)].slice(-80)
+      window.localStorage.setItem(processedKey, JSON.stringify(processed))
+      window.localStorage.setItem(LAST_PHONE_ALERT_KEY, String(alert.alert_id))
+
+      const isDescribe = alert.kind === 'describe' || alert.kind === 'read'
+      const isSnapshotOnly = alert.kind === 'obstacle_snapshot' || alert.speak === false
+      const speakText = alert.speak_hi || alert.text_hi || ''
+      const historyId = alert.replaces_alert_id
+        ? `alert-${alert.replaces_alert_id}`
+        : `alert-${alert.alert_id}`
+
+      const history = saveObstacleHistoryItem({
+        id: historyId,
+        created_at: alert.created_at || new Date().toISOString(),
+        event_type: alert.event_type || (isDescribe ? 'voice_command' : 'obstacle_ahead'),
+        direction: alert.direction,
+        distance_mm: alert.distance_mm,
+        speak_hi: speakText,
+        image_jpeg_b64: alert.image_jpeg_b64,
+        source: alert.source || alert.kind,
+      })
+      setObstacleHistory(history)
+
+      if (isDescribe || isSnapshotOnly || !speakText) return
+      if (speakingAlertRef.current) return
+      speakingAlertRef.current = true
+      try {
+        await speakGuidance(speakText)
+        if (device?.pairing_code) {
+          await sendNearbyCommand(device.pairing_code, 'unmute_haptics').catch(() => {})
+        }
+      } finally {
+        speakingAlertRef.current = false
+      }
+    }
+
     const checkNearby = async () => {
       try {
         const localStatus = await getNearbyDeviceStatus(nearbyPairingCode)
-        if (active) setNearbyLink({ state: 'connected', status: localStatus })
+        if (!active) return
+        setNearbyLink({ state: 'connected', status: localStatus })
+        const alerts = Array.isArray(localStatus?.phone_alerts) && localStatus.phone_alerts.length
+          ? localStatus.phone_alerts
+          : (localStatus?.phone_alert ? [localStatus.phone_alert] : [])
+        for (const alert of alerts) {
+          await handlePhoneAlert(alert)
+        }
       } catch {
+        clearNearbyDeviceUrlCache()
         if (active) setNearbyLink({ state: 'away', status: null })
       }
     }
     checkNearby()
-    const interval = window.setInterval(checkNearby, 8_000)
+    const interval = window.setInterval(checkNearby, 1_000)
     return () => {
       active = false
       window.clearInterval(interval)
@@ -157,9 +245,26 @@ export function DeviceProvider({ children }) {
     return localStatus
   }
 
+  const describeNearbySurroundings = async () => {
+    if (!device?.pairing_code) throw new Error('Pair your glasses before asking them to read.')
+    const result = await sendNearbyDescribe(device.pairing_code)
+    setNearbyLink((prev) => ({ ...prev, state: 'connected' }))
+    if (result?.status === 'ok' && result?.text_hi) {
+      const history = saveObstacleHistoryItem({
+        id: `read-${Date.now()}`,
+        event_type: 'voice_command',
+        speak_hi: result.text_hi,
+        image_jpeg_b64: result.image_jpeg_b64,
+        source: result.source || 'read',
+      })
+      setObstacleHistory(history)
+    }
+    return result
+  }
+
   const value = {
-    device, status, events, loading, nearbyLink, pairDevice, playPreviewScene,
-    sendNearbyDeviceCommand, refresh: loadDevice,
+    device, status, events, loading, nearbyLink, dataError, lastRefreshedAt, obstacleHistory,
+    pairDevice, playPreviewScene, sendNearbyDeviceCommand, describeNearbySurroundings, refresh: loadDevice,
   }
 
   return <DeviceContext.Provider value={value}>{children}</DeviceContext.Provider>

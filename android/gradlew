@@ -202,7 +202,9 @@ fi
 
 
 # Add default JVM options here. You can also use JAVA_OPTS and GRADLE_OPTS to pass JVM options to this script.
-DEFAULT_JVM_OPTS='"-Xmx64m" "-Xms64m"'
+# Capacitor 8 generates Java 21 compile targets. This project-scoped system
+# property takes precedence over the user's global Gradle JDK 17 setting.
+DEFAULT_JVM_OPTS='"-Xmx64m" "-Xms64m" "-Dorg.gradle.java.home=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home"'
 
 # Collect all arguments for the java command:
 #   * DEFAULT_JVM_OPTS, JAVA_OPTS, and optsEnvironmentVar are not allowed to contain shell fragments,
