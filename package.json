@@ -9,7 +9,8 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "android:sync": "npm run build && npx cap sync android",
-    "android:build": "npm run android:sync && cd android && ./gradlew assembleDebug"
+    "android:build": "npm run android:sync && cd android && ./gradlew assembleDebug",
+    "android:install": "bash scripts/android-fast-install.sh"
   },
   "dependencies": {
     "@capacitor-community/bluetooth-le": "^8.2.0",

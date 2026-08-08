@@ -1,12 +1,9 @@
-import { useState } from 'react'
-import { CheckCircle2, HeartPulse, PlayCircle } from 'lucide-react'
+import { HeartPulse, RefreshCw } from 'lucide-react'
 import Layout from '../components/Layout'
 import Card from '../components/Card'
 import Button from '../components/Button'
-import { supabase, isDemoMode } from '../lib/supabaseClient'
 import { useDevice } from '../context/DeviceContext'
 import { timeAgo } from '../lib/format'
-import { signalGuidance } from '../services/sensoryFeedback'
 
 function Row({ label, value, ok }) {
   return (
@@ -20,58 +17,37 @@ function Row({ label, value, ok }) {
 }
 
 export default function Diagnostics() {
-  const { device, status } = useDevice()
-  const [requesting, setRequesting] = useState(false)
-  const [requested, setRequested] = useState(false)
-
-  const runSelfTest = async () => {
-    if (!device) return
-    setRequesting(true)
-    if (isDemoMode) {
-      setRequesting(false)
-      setRequested(true)
-      signalGuidance({ text: 'Self test complete. Your glasses are ready to guide you.' })
-      return
-    }
-    await supabase.from('device_events').insert({
-      device_id: device.id,
-      event_type: 'system',
-      detail: { command: 'self_test_requested' },
-    })
-    setRequesting(false)
-    setRequested(true)
-    signalGuidance({ text: 'Self test requested. Your glasses will check their sensors shortly.' })
-  }
+  const { device, status, refresh, loading, dataError } = useDevice()
 
   return (
     <Layout title="Device care" subtitle="A quick check of your glasses">
       <div className="space-y-4">
         <Card eyebrow="Your device" title={device?.name ?? 'Divya Drishti'}>
-          <Row label="Paired" value={device?.paired_at ? timeAgo(device.paired_at) : '—'} />
-          <Row label="Last update" value={device?.last_seen_at ? timeAgo(device.last_seen_at) : '—'} />
-          <Row label="Guidance" value={status?.mode === 'camera_fallback' ? 'Camera support' : 'Obstacle sensing'} />
+          <Row label="Set up" value={device?.paired_at ? timeAgo(device.paired_at) : '—'} />
+          <Row label="Last safety update" value={status?.updated_at ? timeAgo(status.updated_at) : '—'} />
+          <Row label="Guidance" value={status?.mode === 'tof' ? 'Obstacle sensing' : status?.mode === 'camera_fallback' ? 'Camera fallback' : 'Waiting for status'} />
         </Card>
 
-        <Card eyebrow="Health" title="Everything looks good">
+        <Card eyebrow="Health" title="Hardware health">
           <Row label="Left sensing" value={status?.tof_left_ok ? 'Working well' : 'Needs attention'} ok={status?.tof_left_ok} />
           <Row label="Right sensing" value={status?.tof_right_ok ? 'Working well' : 'Needs attention'} ok={status?.tof_right_ok} />
           <Row label="Camera" value={status?.camera_ok ? 'Online' : 'Unavailable'} ok={status?.camera_ok} />
           <Row label="Microphone" value={status?.mic_ok ? 'Online' : 'Unavailable'} ok={status?.mic_ok} />
         </Card>
 
-        <Card eyebrow="Confidence check" title="Run a quick self-test">
+        <Card eyebrow="Live status" title="Refresh device information">
           <p className="text-sm text-mist-400 mb-4">
-            Your glasses will check their sensing, sound, and vibration feedback.
+            Refresh checks the latest status sent by your glasses. It does not start sound, vibration, or a hardware self-test.
           </p>
-          <Button onClick={runSelfTest} disabled={requesting || !device} className="w-full">
-            <PlayCircle size={16} />
-            {requesting ? 'Starting check…' : requested ? 'Self-test complete' : 'Run self-test'}
+          <Button onClick={refresh} disabled={loading || !device} className="w-full">
+            <RefreshCw size={16} />
+            {loading ? 'Refreshing…' : 'Refresh status'}
           </Button>
         </Card>
 
-        {requested && (
-          <div className="flex items-center gap-2 justify-center rounded-xl bg-safe-500/10 px-4 py-3 text-sm text-safe-400">
-            <CheckCircle2 size={18} /> Your glasses are ready to guide you.
+        {dataError && (
+          <div className="rounded-xl bg-alert-500/10 px-4 py-3 text-sm leading-6 text-alert-400">
+            {dataError}
           </div>
         )}
 

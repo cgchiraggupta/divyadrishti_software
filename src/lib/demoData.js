@@ -30,21 +30,33 @@ export const demoEvents = [
     id: 1,
     device_id: demoDevice.id,
     event_type: 'path_clear',
-    detail: { message: 'Path ahead is clear.' },
+    detail: {
+      message: 'Path ahead is clear.',
+      speak_hi: 'रास्ता साफ़ है। आप आराम से आगे बढ़ सकते हैं।',
+    },
     created_at: minutesAgo(1),
   },
   {
     id: 2,
     device_id: demoDevice.id,
     event_type: 'obstacle_ahead',
-    detail: { distance_mm: 620, object_label: 'Chair', direction: 'ahead' },
+    detail: {
+      distance_mm: 620,
+      object_label: 'Chair',
+      direction: 'ahead',
+      speak_hi: 'सामने कुर्सी है। लगभग 60 सेंटीमीटर दूर।',
+    },
     created_at: minutesAgo(4),
   },
   {
     id: 3,
     device_id: demoDevice.id,
     event_type: 'voice_command',
-    detail: { command: 'what is ahead', response: 'Chair ahead, about 60 centimetres away.' },
+    detail: {
+      command: 'what is ahead',
+      response: 'Chair ahead, about 60 centimetres away.',
+      speak_hi: 'सामने कुर्सी है। लगभग 60 सेंटीमीटर दूर।',
+    },
     created_at: minutesAgo(9),
   },
 ]
@@ -56,7 +68,8 @@ export const previewScenes = [
     event_type: 'path_clear',
     title: 'Path ahead is clear',
     message: 'You can continue comfortably.',
-    detail: { message: 'Path ahead is clear.' },
+    speak_hi: 'रास्ता साफ़ है। आप आराम से आगे बढ़ सकते हैं।',
+    detail: { message: 'Path ahead is clear.', speak_hi: 'रास्ता साफ़ है। आप आराम से आगे बढ़ सकते हैं।' },
   },
   {
     id: 'chair',
@@ -64,7 +77,8 @@ export const previewScenes = [
     event_type: 'obstacle_ahead',
     title: 'Chair ahead',
     message: 'About 60 centimetres away.',
-    detail: { object_label: 'Chair', distance_mm: 620, direction: 'ahead' },
+    speak_hi: 'सामने कुर्सी है। लगभग 60 सेंटीमीटर दूर।',
+    detail: { object_label: 'Chair', distance_mm: 620, direction: 'ahead', speak_hi: 'सामने कुर्सी है। लगभग 60 सेंटीमीटर दूर।' },
   },
   {
     id: 'right',
@@ -72,7 +86,8 @@ export const previewScenes = [
     event_type: 'obstacle_right',
     title: 'Obstacle on your right',
     message: 'About 80 centimetres away.',
-    detail: { distance_mm: 800, direction: 'right' },
+    speak_hi: 'दाईं ओर बाधा है। लगभग 80 सेंटीमीटर दूर।',
+    detail: { distance_mm: 800, direction: 'right', speak_hi: 'दाईं ओर बाधा है। लगभग 80 सेंटीमीटर दूर।' },
   },
   {
     id: 'ground',
@@ -80,7 +95,8 @@ export const previewScenes = [
     event_type: 'uneven_ground',
     title: 'Uneven ground ahead',
     message: 'Please take care with your next step.',
-    detail: { distance_mm: 450 },
+    speak_hi: 'आगे जमीन ऊबड़-खाबड़ है। सावधानी से कदम बढ़ाएँ।',
+    detail: { distance_mm: 450, speak_hi: 'आगे जमीन ऊबड़-खाबड़ है। सावधानी से कदम बढ़ाएँ।' },
   },
 ]
 
@@ -92,4 +108,8 @@ export function createDemoEvent(scene) {
     detail: scene.detail,
     created_at: new Date().toISOString(),
   }
+}
+
+export function sceneSpeakText(scene) {
+  return scene?.speak_hi || `${scene?.title || ''}. ${scene?.message || ''}`.trim()
 }

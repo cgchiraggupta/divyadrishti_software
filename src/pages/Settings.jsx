@@ -8,6 +8,7 @@ import { supabase, isDemoMode } from '../lib/supabaseClient'
 import { useDevice } from '../context/DeviceContext'
 import { formatDistanceMeters, timeAgo } from '../lib/format'
 import { signalGuidance, tapFeedback } from '../services/sensoryFeedback'
+import { sendNearbySettings } from '../services/localDeviceLink'
 
 const FEEDBACK_MODES = [
   { id: 'audio', label: 'Audio only' },
@@ -169,7 +170,7 @@ function RequestStatus({ request, hasConfirmedSettings }) {
 }
 
 export default function Settings() {
-  const { device, status } = useDevice()
+  const { device, status, nearbyLink } = useDevice()
   const deviceId = device?.id
   const [appliedSettings, setAppliedSettings] = useState(getInitialSettings)
   const [draft, setDraft] = useState(getInitialSettings)
@@ -179,6 +180,7 @@ export default function Settings() {
   const [saving, setSaving] = useState(false)
   const [retryableSubmission, setRetryableSubmission] = useState(null)
   const [error, setError] = useState('')
+  const [nearbyApplyMessage, setNearbyApplyMessage] = useState('')
 
   const latestRequestRef = useRef(null)
   const draftDirtyRef = useRef(false)
@@ -193,6 +195,13 @@ export default function Settings() {
   const needsApply = !hasConfirmedSettings || hasChanges
   const statusFresh = isFresh(status?.updated_at)
   const detectionRangeMeters = draft.sensitivity_mm / 1000
+  const nearbyConnected = !isDemoMode && nearbyLink.state === 'connected'
+  const glassesSettings = nearbyLink.status?.settings
+    ? normalizeSettings(nearbyLink.status.settings, appliedSettings)
+    : null
+  const glassesMatchDraft = glassesSettings
+    ? sameSettingValues(draft, glassesSettings)
+    : false
 
   const mergeLatestRequest = (incoming) => {
     const next = newestRequest(latestRequestRef.current, incoming)
@@ -329,6 +338,7 @@ export default function Settings() {
     if (!device || saving || pending || !needsApply) return
     setSaving(true)
     setError('')
+    setNearbyApplyMessage('')
 
     if (isDemoMode) {
       const request = {
@@ -379,6 +389,40 @@ export default function Settings() {
 
       const latest = mergeLatestRequest(data)
       draftDirtyRef.current = false
+
+      // Dual path: push to nearby glasses immediately when on the same Wi-Fi.
+      if (nearbyConnected) {
+        try {
+          const nearby = await sendNearbySettings(device.pairing_code, {
+            ...submission.values,
+            request_id: data.id,
+          })
+          const live = nearby?.settings ? normalizeSettings(nearby.settings) : null
+          if (live) {
+            setAppliedSettings({
+              ...live,
+              revision: appliedSettings.revision,
+              applied_at: nearby.updated_at || new Date().toISOString(),
+              last_request_id: data.id,
+            })
+            setHasConfirmedSettings(true)
+            setNearbyApplyMessage(
+              `Glasses updated now: detection ${formatDistanceMeters(live.sensitivity_mm)}.`,
+            )
+          } else {
+            setNearbyApplyMessage('Glasses received the change over Wi-Fi.')
+          }
+        } catch {
+          setNearbyApplyMessage(
+            'Cloud queued the change, but nearby Wi-Fi push failed. Glasses will pick it up within a few seconds if online.',
+          )
+        }
+      } else {
+        setNearbyApplyMessage(
+          'Change queued in the cloud. Glasses will apply it when they are online (keep phone and glasses on the same Wi-Fi for instant apply).',
+        )
+      }
+
       if (data.state === 'applied') acceptAppliedRequest(data, latest?.id === data.id)
       if (!isPending(data)) {
         submissionRef.current = null
@@ -386,6 +430,7 @@ export default function Settings() {
       }
     } catch (requestError) {
       setError(requestError?.message ?? 'The change was not sent. Retry uses the same safe request ID.')
+      setNearbyApplyMessage('')
     } finally {
       setSaving(false)
     }
@@ -394,23 +439,45 @@ export default function Settings() {
   const controlsDisabled = loading || saving || pending || !device
   const primaryLabel = saving
     ? 'Sending to glasses…'
-    : pending
+    : pending && !nearbyApplyMessage
       ? 'Waiting for glasses…'
       : retryableSubmission
         ? 'Retry sending change'
         : !hasConfirmedSettings
           ? 'Set defaults on glasses'
           : hasChanges
-            ? 'Apply to glasses'
+            ? nearbyConnected
+              ? 'Apply to glasses now'
+              : 'Apply to glasses'
             : 'Applied settings are current'
 
   return (
-    <Layout title="Settings" subtitle="Changes apply only after your glasses confirm them">
+    <Layout title="Settings" subtitle="Apply sends to the glasses — slider alone does not change hardware">
       <div className="space-y-4">
         <Card eyebrow="Glasses confirmation" title="Current device setting">
           <RequestStatus request={latestRequest} hasConfirmedSettings={hasConfirmedSettings} />
+          {glassesSettings && (
+            <p className="mt-3 rounded-xl border border-night-700 bg-night-800 px-3 py-2 text-sm leading-6 text-mist-200">
+              On glasses now:{' '}
+              <span className="font-data text-signal-300">
+                {formatDistanceMeters(glassesSettings.sensitivity_mm)}
+              </span>
+              {' · '}
+              {glassesSettings.feedback_mode}
+              {glassesMatchDraft ? ' · matches your selection' : ' · differs from slider below'}
+            </p>
+          )}
+          {!glassesSettings && !isDemoMode && (
+            <p className="mt-3 text-xs leading-5 text-mist-500">
+              Nearby Wi-Fi not linked — live glasses range unavailable. Last cloud-confirmed:{' '}
+              {formatDistanceMeters(appliedSettings.sensitivity_mm)}.
+            </p>
+          )}
           {appliedSettings.applied_at && (
             <p className="mt-2 text-xs text-mist-500">Last confirmed setting: {timeAgo(appliedSettings.applied_at)}</p>
+          )}
+          {nearbyApplyMessage && (
+            <p className="mt-2 text-xs leading-5 text-safe-300">{nearbyApplyMessage}</p>
           )}
           {pending && !statusFresh && (
             <p className="mt-2 text-xs leading-5 text-alert-400">No recent safety update from the glasses. This request will wait until they reconnect.</p>
@@ -421,6 +488,7 @@ export default function Settings() {
           <div className="mb-2 flex items-center gap-3">
             <Ruler size={18} className="text-signal-400" />
             <span className="font-data text-sm text-mist-200">{formatDistanceMeters(draft.sensitivity_mm)}</span>
+            <span className="text-xs text-mist-500">selected</span>
           </div>
           <input
             type="range"
@@ -428,13 +496,19 @@ export default function Settings() {
             max="2.5"
             step="0.5"
             value={detectionRangeMeters}
-            onChange={(event) => update({ sensitivity_mm: Math.round(Number(event.target.value) * 1000) })}
+            onChange={(event) => {
+              setNearbyApplyMessage('')
+              update({ sensitivity_mm: Math.round(Number(event.target.value) * 1000) })
+            }}
             onPointerUp={tapFeedback}
             aria-valuetext={formatDistanceMeters(draft.sensitivity_mm)}
             disabled={controlsDisabled}
             className="w-full accent-signal-500 disabled:opacity-50"
           />
-          <p className="mt-2 text-xs leading-5 text-mist-500">Sets the early-warning range. Close-range urgent protection stays active.</p>
+          <p className="mt-2 text-xs leading-5 text-mist-500">
+            Early-warning range for ToF. Press Apply to push this to the glasses
+            {nearbyConnected ? ' (instant over Wi-Fi + cloud confirm).' : ' (cloud queue until glasses are online).'}
+          </p>
         </Card>
 
         <Card eyebrow="Feedback" title="Alert mode">
@@ -507,6 +581,9 @@ export default function Settings() {
             />
             <span className="w-10 text-right font-data text-sm text-mist-200">{draft.vibration_intensity}%</span>
           </div>
+          <p className="mt-2 text-xs leading-5 text-mist-500">
+            Urgent safety alerts keep a minimum vibration intensity, even when this slider is lower.
+          </p>
         </Card>
 
         <Link

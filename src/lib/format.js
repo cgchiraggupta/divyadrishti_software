@@ -21,9 +21,16 @@ export function isHazardEvent(eventType) {
 export function formatDistanceMeters(distanceMm) {
   if (distanceMm == null || !Number.isFinite(Number(distanceMm))) return '—'
 
-  return `${(Number(distanceMm) / 1000).toLocaleString('en-IN', {
-    minimumFractionDigits: 1,
-    maximumFractionDigits: 2,
+  const mm = Number(distanceMm)
+  // Under 1 m show centimetres so 320 mm reads "32 cm", not "0.32 m".
+  if (mm < 1000) {
+    return `${Math.max(1, Math.round(mm / 10))} cm`
+  }
+
+  const meters = mm / 1000
+  return `${meters.toLocaleString('en-IN', {
+    minimumFractionDigits: Number.isInteger(meters) ? 0 : 1,
+    maximumFractionDigits: 1,
   })} m`
 }
 

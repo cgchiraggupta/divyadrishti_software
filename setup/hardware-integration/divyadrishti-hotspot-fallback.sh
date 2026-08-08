@@ -23,7 +23,11 @@ while true; do
   connected && continue
 
   logger -t divyadrishti-hotspot "No saved Wi-Fi available; entering setup hotspot mode"
+  # NetworkManager otherwise races this script and removes 192.168.4.1 while
+  # hostapd is active, leaving a visible hotspot with no reachable Pi server.
+  nmcli device set "$INTERFACE" managed no
   ip addr flush dev "$INTERFACE"
+  ip link set "$INTERFACE" up
   ip addr add "$HOTSPOT_IP" dev "$INTERFACE"
   systemctl restart dnsmasq
   # This endpoint accepts credentials only from a phone already on the private
